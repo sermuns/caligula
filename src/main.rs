@@ -1,9 +1,12 @@
 use clap::Parser;
+use tracing::info;
 
-use crate::cli::{BurnArgs, CaligulaArgs};
+use crate::{
+    cli::CaligulaArgs,
+    logging::{setup_child_logging, setup_parent_logging},
+};
 
 mod byteseries;
-mod childproc_common;
 mod cli;
 mod compression;
 mod device;
@@ -21,7 +24,14 @@ fn main() {
     let args = CaligulaArgs::parse();
 
     match args.command {
-        cli::Command::Burn(_burn_args) => todo!(),
-        cli::Command::RemoteHerder(_herder_args) => todo!(),
+        cli::Command::Burn(_burn_args) => {
+            setup_parent_logging();
+            todo!()
+        }
+        cli::Command::RemoteHerder(_herder_args) => {
+            setup_child_logging();
+            info!("Initializing herder");
+            todo!()
+        }
     }
 }

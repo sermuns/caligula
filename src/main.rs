@@ -13,6 +13,7 @@ mod device;
 mod escalation;
 mod hash;
 mod hashfile;
+mod herder;
 mod ipc_common;
 mod logging;
 mod native;

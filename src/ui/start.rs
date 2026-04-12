@@ -7,7 +7,6 @@ use tracing::debug;
 use crate::{
     compression::CompressionFormat,
     device::{self, WriteTarget},
-    herder::{Herder, StartWriterError, WriterHandle},
     logging::LogPaths,
     ui::{
         cli::{Interactive, UseSudo},
@@ -55,11 +54,13 @@ impl BeginParams {
 
 #[tracing::instrument(skip_all, fields(root, interactive))]
 pub async fn try_start_burn(
-    herder: &mut Herder,
+    herder: &mut LocalHerder,
     args: &WriterProcessConfig,
     root: UseSudo,
     interactive: bool,
-) -> anyhow::Result<WriterHandle> {
+) -> anyhow::Result<()> {
+    todo!()
+    /*
     let err = match herder.start_writer(args, false).await {
         Ok(p) => {
             return Ok(p);
@@ -95,13 +96,13 @@ pub async fn try_start_burn(
         }
     }
 
-    Err(dc.into())
+    Err(dc.into()) */
 }
 
 pub async fn begin_writing(
     interactive: Interactive,
     params: BeginParams,
-    handle: WriterHandle,
+    // TODO handle: WriterHandle,
     log_paths: Arc<LogPaths>,
 ) -> anyhow::Result<()> {
     debug!("Opening TUI");
@@ -111,13 +112,13 @@ pub async fn begin_writing(
         let terminal = tui.terminal();
 
         // create app and run it
-        FancyUI::new(&params, handle, terminal, log_paths)
+        FancyUI::new(&params, /*handle,*/ terminal, log_paths)
             .show()
             .await?;
         debug!("Closing TUI");
     } else {
         debug!("Using simple TUI");
-        run_simple_burning_ui(handle, params.compression).await?;
+        run_simple_burning_ui(/*handle,*/ params.compression).await?;
     }
 
     Ok(())

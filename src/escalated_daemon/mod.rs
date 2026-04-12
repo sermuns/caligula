@@ -19,56 +19,9 @@ use tokio::io::{AsyncBufRead, BufReader};
 use tracing::{Instrument, error, info, info_span};
 use tracing_unwrap::ResultExt;
 
-use crate::{
-    childproc_common::child_init,
-    escalated_daemon::ipc::{EscalatedDaemonInitConfig, SpawnWriter},
-    ipc_common::read_msg_async,
-    run_mode::make_writer_spawn_command,
-};
-
-pub mod ipc;
+use crate::{childproc_common::child_init, ipc_common::read_msg_async};
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
-    let (sock, _) = child_init::<EscalatedDaemonInitConfig>();
-
-    info!("Opening socket {sock}");
-    let stream = LocalSocketStream::connect(
-        sock.as_str()
-            .to_fs_name::<GenericFilePath>()
-            .unwrap_or_log(),
-    )
-    .await
-    .unwrap_or_log();
-
-    event_loop(&sock, BufReader::new(stream))
-        .await
-        .unwrap_or_log();
-}
-
-#[tracing::instrument(skip_all)]
-async fn event_loop(socket: &str, mut stream: impl AsyncBufRead + Unpin) -> anyhow::Result<()> {
-    loop {
-        let msg = read_msg_async::<SpawnWriter>(&mut stream).await?;
-        info!(?msg, "Received SpawnWriter request");
-
-        let command =
-            make_writer_spawn_command(socket.into(), msg.log_file.into(), &msg.init_config);
-        let mut cmd = tokio::process::Command::from(command);
-        cmd.kill_on_drop(true);
-        let mut child = cmd.spawn().context("Failed to spawn writer process")?;
-        info!(?child, "Spawned writer process");
-
-        // Wait on child processes to reap them when they're done.
-        let pid = child.id();
-        tokio::spawn(
-            async move {
-                match child.wait().await {
-                    Ok(r) => info!("Child exited with exit code {r}"),
-                    Err(e) => error!("Failed to wait on child: {e}"),
-                }
-            }
-            .instrument(info_span!("childwait", child_pid = pid)),
-        );
-    }
+    todo!()
 }

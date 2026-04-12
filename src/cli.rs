@@ -13,7 +13,7 @@ use crate::{
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, flatten_help = true)]
 #[command(propagate_version = true)]
-pub struct Args {
+pub struct CaligulaArgs {
     #[command(subcommand)]
     pub command: Command,
 }
@@ -21,6 +21,9 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Burn(BurnArgs),
+
+    #[command(name = "_herder", hide = true)]
+    RemoteHerder(RemoteHerderArgs),
 }
 
 /// Burn an image to a disk.
@@ -189,6 +192,15 @@ impl Interactive {
         }
     }
 }
+
+/// INTERNAL ONLY!
+///
+/// This is a backend entrypoint that is used in implementing automatic root escalation.
+/// There are ZERO stability guarantees. Do NOT rely on this interface for anything.
+// Interestingly, this interface can theoretically be used to have caligula delegate
+// writing to remote hosts over SSH. This may be a very strange but funny feature to implement.
+#[derive(Parser, Debug)]
+pub struct RemoteHerderArgs {}
 
 #[cfg(test)]
 mod tests {

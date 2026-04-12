@@ -105,8 +105,7 @@ async fn get_event_child_active(
             return Ok(UIEvent::RecvChildStatus(Instant::now(), msg?));
         }
         event = ui_events.next() => {
-            //return Ok(UIEvent::RecvTermEvent(event.unwrap()?));
-            todo!()
+            return Ok(UIEvent::RecvTermEvent(event.unwrap()?));
         }
     }
 }

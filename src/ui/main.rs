@@ -1,7 +1,7 @@
 use std::{fs::File, path::Path, sync::Arc};
 
 use crate::{
-    herder::{LocalHerder, LocalHerderSocket},
+    herder::{Herder, HerderSocket},
     logging::{LogPaths, init_logging_parent},
     tty::TermiosRestore,
     ui::{
@@ -65,9 +65,8 @@ async fn inner_main(state_dir: &Path, log_paths: LogPaths) -> anyhow::Result<()>
         return Ok(());
     };
 
-    /*
-    let socket = LocalHerderSocket::new(state_dir).await?;
-    let mut herder = LocalHerder::new(socket, log_paths.clone());
+    let socket = HerderSocket::new(state_dir).await?;
+    let mut herder = Herder::new(socket, log_paths.clone());
     let handle = try_start_burn(
         &mut herder,
         &begin_params.make_child_config(),
@@ -76,7 +75,7 @@ async fn inner_main(state_dir: &Path, log_paths: LogPaths) -> anyhow::Result<()>
     )
     .await?;
     begin_writing(args.interactive, begin_params, handle, log_paths).await?;
- */
+
     debug!("Done!");
     Ok(())
 }

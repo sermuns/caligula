@@ -3,6 +3,10 @@ use std::{borrow::Cow, fmt::Debug};
 use process_path::get_executable_path;
 use serde::Serialize;
 
+use crate::{
+    escalated_daemon::ipc::EscalatedDaemonInitConfig, escalation::Command,
+    writer_process::ipc::WriterProcessConfig,
+};
 
 pub const RUN_MODE_ENV_NAME: &str = "__CALIGULA_RUN_MODE";
 
@@ -61,8 +65,6 @@ impl RunMode {
     }
 }
 
-/*
-
 /// Build a [Command] that, when run, spawns a process with a specific configuration.
 pub fn make_spawn_command<'a, C: Serialize + Debug>(
     socket: Cow<'a, str>,
@@ -99,4 +101,3 @@ pub fn make_escalated_daemon_spawn_command<'a>(
 ) -> Command<'a> {
     make_spawn_command(socket, log_path, RunMode::EscalatedDaemon, init_config)
 }
- */

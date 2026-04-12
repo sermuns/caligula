@@ -1,23 +1,23 @@
+use std::io::Write;
 use std::process::Stdio;
-use std::sync::Arc;
 
-use crate::escalated_daemon::ipc::{EscalatedDaemonInitConfig, SpawnWriter};
+use crate::escalated_daemon;
+use crate::escalated_daemon::ipc::SpawnWriter;
 use crate::evdist::EventDemux;
 use crate::ipc_common::{read_msg_async, write_msg_async};
-use crate::logging::LogPaths;
-use crate::run_mode::make_escalated_daemon_spawn_command;
+use crate::logging::LogFile;
 use crate::writer_process::ipc::ErrorType;
 use crate::writer_process::spawn_writer;
 use anyhow::Context;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use tokio::io::BufWriter;
+use tokio::io::{AsyncBufReadExt as _, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::mpsc;
 use tracing::{debug, trace};
 use tracing_unwrap::ResultExt;
 
-use crate::escalation::run_escalate;
+use crate::escalation::{make_escalated_daemon_spawn_command, run_escalate};
 use crate::writer_process::ipc::{InitialInfo, StatusMessage, WriterProcessConfig};
 
 /// Handles the herding of all child processes. This includes lifecycle management
@@ -28,17 +28,17 @@ use crate::writer_process::ipc::{InitialInfo, StatusMessage, WriterProcessConfig
 pub struct Herder {
     event_demux: EventDemux<u64, StatusMessage>,
     writer_tx: mpsc::UnboundedSender<(u64, StatusMessage)>,
-    log_paths: Arc<LogPaths>,
+    log_file: LogFile,
     escalated_daemon: Option<EscDaemonHandle>,
     next_writer_id: u64,
 }
 
 impl Herder {
-    pub fn new(log_paths: Arc<LogPaths>) -> Self {
+    pub fn new(log_file: LogFile) -> Self {
         let (writer_tx, writer_rx) = mpsc::unbounded_channel();
         Self {
             escalated_daemon: None,
-            log_paths,
+            log_file,
             next_writer_id: 0,
             event_demux: EventDemux::new(writer_rx),
             writer_tx,
@@ -49,11 +49,7 @@ impl Herder {
     async fn ensure_escalated_daemon(&mut self) -> anyhow::Result<&mut EscDaemonHandle> {
         // Can't use if let here because of polonius! so we gotta do this ugly-ass workaround
         if self.escalated_daemon.is_none() {
-            let log_path = self.log_paths.escalated_daemon();
-            let cmd = make_escalated_daemon_spawn_command(
-                log_path.to_string_lossy(),
-                &EscalatedDaemonInitConfig {},
-            );
+            let cmd = make_escalated_daemon_spawn_command();
 
             debug!("Starting child process with command: {:?}", cmd);
             fn modify_cmd(cmd: &mut tokio::process::Command) {
@@ -77,6 +73,19 @@ impl Herder {
                         .await
                         .unwrap();
                     event_tx.send(msg).unwrap();
+                }
+            });
+
+            let mut log_file = self.log_file.clone();
+            let mut child_stderr = BufReader::new(child.stderr.take().unwrap());
+            tokio::spawn(async move {
+                let mut s = String::new();
+                loop {
+                    s.clear();
+                    let line = child_stderr.read_line(&mut s).await.unwrap();
+
+                    let bs = s.as_bytes();
+                    log_file.write_all(&bs[..line]);
                 }
             });
 

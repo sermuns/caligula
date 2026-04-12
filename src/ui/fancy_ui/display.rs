@@ -12,7 +12,6 @@ use tokio::{select, time};
 
 use crate::{
     herder::WriterHandle,
-    logging::LogPaths,
     ui::{start::BeginParams, writer_tracking::WriterState},
 };
 
@@ -29,7 +28,6 @@ where
     events: EventStream,
     handle: Option<WriterHandle>,
     state: State,
-    log_paths: Arc<LogPaths>,
 }
 
 impl<'a, B> FancyUI<'a, B>
@@ -41,7 +39,6 @@ where
         params: &BeginParams,
         handle: WriterHandle,
         terminal: &'a mut Terminal<B>,
-        log_paths: Arc<LogPaths>,
     ) -> Self {
         let input_file_bytes = handle.initial_info().input_file_bytes;
         Self {
@@ -49,7 +46,6 @@ where
             handle: Some(handle),
             events: EventStream::new(),
             state: State::initial(Instant::now(), params, input_file_bytes),
-            log_paths,
         }
     }
 
@@ -82,7 +78,7 @@ where
             self.handle = None;
         }
 
-        draw(&mut self.state, self.terminal, &self.log_paths)?;
+        draw(&mut self.state, self.terminal)?;
         Ok(self)
     }
 }
@@ -165,7 +161,6 @@ fn centered_rect(r: Rect, w: u16, h: u16) -> Rect {
 pub fn draw(
     state: &mut State,
     terminal: &mut Terminal<impl ratatui::backend::Backend>,
-    log_paths: &LogPaths,
 ) -> anyhow::Result<()> {
     let progress_bar = WriterProgressBar::from_writer(&state.child);
 

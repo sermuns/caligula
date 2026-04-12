@@ -5,7 +5,21 @@ mod unix;
 
 use std::process::Stdio;
 
+use process_path::get_executable_path;
+
+use crate::escalated_daemon::ipc::EscalatedDaemonInitConfig;
+
 pub use self::unix::Command;
+
+pub fn make_escalated_daemon_spawn_command<'a>() -> Command<'a> {
+    let proc = get_executable_path().unwrap();
+
+    Command {
+        proc: proc.to_str().unwrap().to_owned().into(),
+        envs: vec![],
+        args: vec![],
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

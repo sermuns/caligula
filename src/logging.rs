@@ -1,46 +1,11 @@
+use std::cell::OnceCell;
 use std::fs::File;
-use std::fs::create_dir_all;
-use std::panic::set_hook;
-use std::path::Path;
-use std::{path::PathBuf, sync::Mutex};
+use std::sync::Arc;
+use std::sync::LazyLock;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
-use crossterm::terminal::disable_raw_mode;
-use tracing::{Level, error};
-use tracing_subscriber::EnvFilter;
-
-/// Helper for calculating which files to log to.
-#[derive(Debug, Clone)]
-pub struct LogPaths {
-    log_dir: PathBuf,
-}
-
-impl LogPaths {
-    pub fn init(state_dir: impl AsRef<Path>) -> Self {
-        let log_dir = if cfg!(debug_assertions) {
-            PathBuf::from("dev")
-        } else {
-            state_dir.as_ref().join("log")
-        };
-        create_dir_all(&log_dir).unwrap();
-        Self { log_dir }
-    }
-
-    pub fn main(&self) -> PathBuf {
-        self.log_dir.join("main.log")
-    }
-
-    pub fn escalated_daemon(&self) -> PathBuf {
-        self.log_dir.join("escalated.log")
-    }
-
-    pub fn get_bug_report_msg(&self) -> String {
-        format!(
-            "Please report bugs to https://github.com/ifd3f/caligula/issues and attach the \
-        log files in {}",
-            self.log_dir.to_string_lossy()
-        )
-    }
-}
+use tracing::Level;
 
 #[cfg(not(debug_assertions))]
 const FILE_LOG_LEVEL: Level = Level::DEBUG;
@@ -48,39 +13,99 @@ const FILE_LOG_LEVEL: Level = Level::DEBUG;
 #[cfg(debug_assertions)]
 const FILE_LOG_LEVEL: Level = Level::TRACE;
 
-pub fn init_logging_parent(paths: &LogPaths) {
-    let bug_report_msg = paths.get_bug_report_msg();
-    set_hook(Box::new(move |p| {
-        disable_raw_mode().ok();
-        error!("{p}");
+macro_rules! base_tracing_subscriber {
+    () => {
+        ::tracing_subscriber::fmt()
+            .compact()
+            .with_ansi(false)
+            .with_env_filter(
+                ::tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(crate::logging::FILE_LOG_LEVEL.into())
+                    .from_env_lossy(),
+            )
+            .with_file(true)
+            .with_line_number(true)
+    };
+}
+
+#[derive(Clone)]
+pub struct LogFile {
+    file: Option<Arc<std::sync::Mutex<File>>>,
+}
+
+impl std::io::Write for LogFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let Some(f) = &self.file else {
+            return Ok(buf.len());
+        };
+        f.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let Some(f) = &self.file else {
+            return Ok(());
+        };
+        f.lock().unwrap().flush()
+    }
+}
+
+/// Set up logging configuration for the main parent process.
+///
+/// Returns the [LogFile], which is appropriate for writing child process logs to.
+pub fn setup_parent_logging() -> LogFile {
+    let path = format!(
+        "/tmp/caligula-{}.log",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis()
+    );
+
+    let file = match File::create(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("WARNING: Failed to create log file at {path}: {e}");
+            eprintln!("If you encounter bugs, you're on your own!");
+            return LogFile { file: None };
+        }
+    };
+    let file = LogFile {
+        file: Some(Arc::new(std::sync::Mutex::new(file))),
+    };
+
+    // Print out the log file if we're in debug mode
+    #[cfg(debug_assertions)]
+    eprintln!("Log file is at {path}");
+
+    // Initialize tracing subscriber
+    let cloned = file.clone();
+    base_tracing_subscriber!()
+        .with_writer(move || cloned.clone())
+        .init();
+
+    // Set up panic hook to give users a message if things go haywire
+    std::panic::set_hook(Box::new(move |p| {
+        tracing_panic::panic_hook(p);
+
+        crossterm::terminal::disable_raw_mode().ok();
 
         eprintln!("An unexpected error occurred: {p}");
         eprintln!();
-        eprintln!("{}", bug_report_msg);
+        eprintln!(
+            "Please report bugs to https://github.com/ifd3f/caligula/issues and attach the log file at {path}",
+        );
     }));
 
-    let write_path = paths.main();
-
-    init_tracing_subscriber(write_path);
+    file
 }
 
-pub fn init_logging_child(write_path: impl AsRef<Path>) {
-    init_tracing_subscriber(write_path);
-}
-
-fn init_tracing_subscriber(write_path: impl AsRef<Path>) {
-    let writer = File::create(write_path).unwrap();
-
-    tracing_subscriber::fmt()
-        .compact()
-        .with_ansi(false)
-        .with_writer(Mutex::new(writer))
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(FILE_LOG_LEVEL.into())
-                .from_env_lossy(),
-        )
-        .with_file(true)
-        .with_line_number(true)
+/// Set up logging configuration suitable for a child process.
+pub fn setup_child_logging() {
+    // Log things to stderr
+    base_tracing_subscriber!()
+        .with_writer(std::io::stderr)
         .init();
+
+    // Set up a panic hook for reporting panics
+    std::panic::set_hook(Box::new(tracing_panic::panic_hook));
 }

@@ -3,6 +3,7 @@ use bincode::Options as _;
 use crate::ipcmux::mux::MAX_PAYLOAD;
 
 mod mux;
+mod rpc;
 
 /// Common bincode options to use for inter-process communication.
 #[inline]

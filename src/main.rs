@@ -10,6 +10,7 @@ mod hashfile;
 mod herder_daemon;
 mod herder_facade;
 mod ipc_common;
+mod ipcmux;
 mod logging;
 mod native;
 mod tty;

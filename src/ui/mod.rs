@@ -5,15 +5,15 @@ mod utils;
 
 use std::{fs::File, sync::Arc};
 
-pub use self::cli::BurnArgs;
-pub use self::start::BeginParams;
-pub use self::utils::ByteSpeed;
+pub use self::{
+    cli::{BurnArgs, Interactive, UseSudo},
+    start::{BeginParams, begin_writing, try_start_burn},
+    utils::ByteSpeed,
+    writer_tracking::WriterState,
+};
 use crate::{
-    logging::LogPaths,
-    orchestrator::Orchestrator,
-    runtime::RemoteSpawn,
-    tty::TermiosRestore,
-    ui::{simple_ui::do_setup_wizard, utils::TUICapture},
+    herder_facade::make_herder_facade_impl, logging::LogPaths, tty::TermiosRestore,
+    ui::simple_ui::do_setup_wizard,
 };
 use tracing::{debug, info};
 

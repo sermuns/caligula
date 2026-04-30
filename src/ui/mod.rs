@@ -6,6 +6,7 @@ mod utils;
 use std::{fs::File, sync::Arc};
 
 pub use self::cli::BurnArgs;
+pub use self::start::BeginParams;
 pub use self::utils::ByteSpeed;
 use crate::{
     logging::LogPaths,

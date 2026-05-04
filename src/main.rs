@@ -54,7 +54,7 @@ pub struct HerderDaemonArgs {
     log_file: String,
 }
 
-#[tokio::main(flavor = "local")]
+#[tokio::main]
 async fn main() {
     let args: Args = match std::env::var("_CALIGULA_CONFIGURE_CLAP_FOR_README") {
         Ok(var) if var == "1" => parse_args_for_readme_generation(),

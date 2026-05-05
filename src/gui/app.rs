@@ -1,7 +1,6 @@
 use egui::{CentralPanel, MenuBar, Panel, RichText, ViewportCommand};
 use std::{
     path::PathBuf,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -17,7 +16,7 @@ use crate::{
 pub struct App {
     pub log_paths: Arc<LogPaths>,
     pub options: Options,
-    pub ongoing_write: Rc<Mutex<Option<OngoingWrite>>>,
+    pub ongoing_write: Arc<Mutex<Option<OngoingWrite>>>,
 }
 
 pub struct OngoingWrite {
@@ -66,7 +65,7 @@ impl App {
         let mut s = Self {
             log_paths,
             options,
-            ongoing_write: Rc::new(Mutex::new(None)),
+            ongoing_write: Arc::new(Mutex::new(None)),
         };
         s.refresh_devices();
         s
@@ -111,6 +110,12 @@ impl eframe::App for App {
         CentralPanel::default().show_inside(ui, |ui| {
             if let Some(ongoing_write) = &*self.ongoing_write.lock().unwrap() {
                 ui.label("writing!!");
+                ui.label(format!("Write progress: {}%", ongoing_write.write_progress));
+                ui.label(format!(
+                    "Verify progress: {}%",
+                    ongoing_write.verify_progress
+                ));
+
                 return;
             }
 

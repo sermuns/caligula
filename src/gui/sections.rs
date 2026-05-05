@@ -1,7 +1,8 @@
 use egui::{Checkbox, Color32, ComboBox, RichText, UiBuilder};
 use futures::StreamExt;
-use std::time::Instant;
+use std::{thread, time::Instant};
 use tokio::task::LocalSet;
+use tracing::info;
 
 use crate::{
     compression::CompressionFormat,
@@ -197,60 +198,82 @@ pub fn add_begin_writing_ui(app: &mut App, ui: &mut egui::Ui) {
                 let begin_params = begin_params.clone();
                 let cf = app.options.detected_compression_format.unwrap(); // FIXME:
                 let ongoing_write = app.ongoing_write.clone();
+                let egui_ctx = ui.ctx().clone();
 
-                tokio::task::spawn_local(async move {
-                    eprintln!("inside task!");
-                    let mut herder = make_herder_facade_impl(log_paths.main());
+                // FIXME:
+                // absolutely terrible solution, spawning a thread
+                // just to create a local tokio runtime.
+                // this is just a hack...
+                thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
 
-                    // FIXME: parameters to `try_start_burn`
-                    let interactive = Interactive::Never;
-                    let mut handle = try_start_burn(
-                        &mut herder,
-                        &begin_params.make_child_config(),
-                        UseSudo::Never,
-                        interactive.is_interactive(),
-                    )
-                    .await?;
+                    let local = tokio::task::LocalSet::new();
 
-                    let input_file_bytes = handle.initial_info.input_file_bytes;
+                    local
+                        .block_on(&rt, async move {
+                            eprintln!("inside task!");
+                            let mut herder = make_herder_facade_impl(log_paths.main());
 
-                    let mut child_state =
-                        WriterState::initial(Instant::now(), !cf.is_identity(), input_file_bytes);
+                            // FIXME: parameters to `try_start_burn`
+                            let interactive = Interactive::Never;
+                            let mut handle = try_start_burn(
+                                &mut herder,
+                                &begin_params.make_child_config(),
+                                UseSudo::Never,
+                                interactive.is_interactive(),
+                            )
+                            .await?;
 
-                    *ongoing_write.lock().unwrap() = Some(OngoingWrite {
-                        write_progress: 0,
-                        verify_progress: 0,
-                    });
+                            let input_file_bytes = handle.initial_info.input_file_bytes;
 
-                    loop {
-                        eprintln!("got event!");
-                        let x = handle.events.next().await;
-                        child_state = child_state.on_status(Instant::now(), x);
-                        // FIXME: fugly-ass unwrapping
-                        match &child_state {
-                            WriterState::Writing(b) => {
-                                ongoing_write
-                                    .lock()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .write_progress = (b.approximate_ratio() * 1000.0) as u64
+                            let mut child_state = WriterState::initial(
+                                Instant::now(),
+                                !cf.is_identity(),
+                                input_file_bytes,
+                            );
+
+                            *ongoing_write.lock().unwrap() = Some(OngoingWrite {
+                                write_progress: 0,
+                                verify_progress: 0,
+                            });
+
+                            loop {
+                                let x = handle.events.next().await;
+                                info!(?x, "got event from burn handle");
+                                child_state = child_state.on_status(Instant::now(), x);
+                                // FIXME: fugly-ass unwrapping
+                                match &child_state {
+                                    WriterState::Writing(b) => {
+                                        ongoing_write
+                                            .lock()
+                                            .unwrap()
+                                            .as_mut()
+                                            .unwrap()
+                                            .write_progress =
+                                            (b.approximate_ratio() * 1000.0) as u64
+                                    }
+                                    WriterState::Verifying {
+                                        total_write_bytes, ..
+                                    } => {
+                                        ongoing_write
+                                            .lock()
+                                            .unwrap()
+                                            .as_mut()
+                                            .unwrap()
+                                            .verify_progress =
+                                            total_write_bytes * 1000 / input_file_bytes
+                                    }
+                                    WriterState::Finished { .. } => break,
+                                }
+                                egui_ctx.request_repaint();
                             }
-                            WriterState::Verifying {
-                                total_write_bytes, ..
-                            } => {
-                                ongoing_write
-                                    .lock()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .verify_progress = total_write_bytes * 1000 / input_file_bytes
-                            }
-                            WriterState::Finished { .. } => break,
-                        }
-                    }
 
-                    anyhow::Ok(())
+                            anyhow::Ok(())
+                        })
+                        .unwrap();
                 });
             }
         }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use clap::{CommandFactory as _, Parser};
 use tracing::debug;
 
-use crate::logging::LogPaths;
+use crate::orchestrator::make_orchestrator_impl;
 
 mod byteseries;
 mod compression;
@@ -54,8 +54,7 @@ pub struct HerderDaemonArgs {
     log_file: String,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args: Args = match std::env::var("_CALIGULA_CONFIGURE_CLAP_FOR_README") {
         Ok(var) if var == "1" => parse_args_for_readme_generation(),
         _ => Args::parse(),
@@ -79,13 +78,16 @@ async fn main() {
         #[cfg(feature = "gui")]
         Command::Gui => {
             // FIXME: duplicated setup from `Command::Burn`
-            let state_dir = util::ensure_state_dir().await.unwrap();
-            let log_paths = logging::LogPaths::init(state_dir);
+
+            let state_dir = util::ensure_state_dir().unwrap();
+            let log_paths = logging::LogPaths::init(&state_dir);
             logging::init_logging_parent(&log_paths);
 
-            debug!("Starting primary process");
+            let runtime = crate::runtime::AsyncRuntime::start();
+            let orc = Arc::new(make_orchestrator_impl(log_paths.main()));
 
-            match gui::main(log_paths.into()) {
+            debug!("Starting primary process");
+            match gui::main(runtime, orc, log_paths.into()) {
                 Ok(_) => (),
                 // FIXME: shitty to_string on error
                 Err(e) => handle_toplevel_error(anyhow::anyhow!(e.to_string())),

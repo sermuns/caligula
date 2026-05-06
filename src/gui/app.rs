@@ -19,7 +19,7 @@ use crate::{
 pub struct App<O: Orchestrator, R: RemoteSpawn> {
     pub log_paths: Arc<LogPaths>,
     pub options: Options,
-    pub ongoing_write: Arc<Mutex<Option<OngoingWrite>>>,
+    pub ongoing_write: Option<OngoingWrite>,
     pub orc: Arc<O>,
     pub runtime: R,
 }
@@ -106,7 +106,7 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
             && self.options.selected_write_target.is_some()
     }
 
-    pub fn add_file_hash_ui(&mut self, ui: &mut egui::Ui) {
+    pub fn file_hash_ui(&mut self, ui: &mut egui::Ui) {
         let FileHashOptions {
             entered_hash: file_hash_str,
             possible_algorithms: file_hash_algorithms_possible,
@@ -173,7 +173,7 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
         );
     }
 
-    pub fn add_image_ui(&mut self, ui: &mut egui::Ui) {
+    pub fn image_ui(&mut self, ui: &mut egui::Ui) {
         let Options {
             detected_compression_format,
             picked_image,
@@ -202,7 +202,7 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
         }
     }
 
-    pub fn add_target_disk_ui(&mut self, ui: &mut egui::Ui) {
+    pub fn target_disk_ui(&mut self, ui: &mut egui::Ui) {
         ui.strong("Target disk");
         if ui.button("Refresh devices").clicked() {
             self.refresh_devices();
@@ -288,14 +288,9 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
                 );
 
                 if ui.button("I know, do it!").clicked() {
-                    // TODO: make sure this really needs to clone
-                    let log_paths = self.log_paths.clone();
                     let write_verify_params = self.options.write_verify_params.take();
-                    let cf = self.options.detected_compression_format.unwrap(); // FIXME:
-                    let ongoing_write = self.ongoing_write.clone();
-                    let egui_ctx = ui.ctx().clone();
 
-                    *ongoing_write.lock().unwrap() = Some(OngoingWrite {
+                    self.ongoing_write = Some(OngoingWrite {
                         write_progress: 0,
                         verify_progress: 0,
                     });
@@ -367,18 +362,18 @@ impl<O: Orchestrator, R: RemoteSpawn> eframe::App for App<O, R> {
 
             ui.add_space(SECTION_SPACING * ui.spacing().item_spacing.y);
 
-            self.add_image_ui(ui);
+            self.image_ui(ui);
 
             ui.add_space(SECTION_SPACING * ui.spacing().item_spacing.y);
 
             ui.add_enabled_ui(self.options.picked_image.is_some(), |ui| {
-                self.add_file_hash_ui(ui)
+                self.file_hash_ui(ui)
             });
 
             ui.add_space(SECTION_SPACING * ui.spacing().item_spacing.y);
 
             ui.add_enabled_ui(self.file_hash_is_verified_or_skipped(), |ui| {
-                self.add_target_disk_ui(ui)
+                self.target_disk_ui(ui)
             });
 
             ui.add_space(SECTION_SPACING * ui.spacing().item_spacing.y);

@@ -6,13 +6,14 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
+use tracing::{error, info};
 
 use crate::{
     compression::CompressionFormat,
     device::{self, Removable, WriteTarget, enumerate_devices},
     hash::{HashAlg, parse_hash_input},
     logging::LogPaths,
-    orchestrator::{Orchestrator, WriteVerifyParams, WriterState},
+    orchestrator::{Orchestrator, OrchestratorExt, WriteVerifyParams, WriterState},
     runtime::RemoteSpawn,
 };
 
@@ -288,7 +289,16 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
                 );
 
                 if ui.button("I know, do it!").clicked() {
-                    let write_verify_params = self.options.write_verify_params.take();
+                    let child_state = match self
+                        .orc
+                        .start_write_verify_blocking(self.runtime, *write_verify_params)
+                    {
+                        Err(e) => {
+                            error!(?e, "failed to start write/verify process");
+                            return;
+                        }
+                        Ok(p) => p.state,
+                    };
 
                     self.ongoing_write = Some(OngoingWrite {
                         write_progress: 0,
@@ -296,32 +306,21 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
                     });
 
                     loop {
-                        let x = handle.events.next().await;
-                        info!(?x, "got event from burn handle");
-                        child_state = child_state.on_status(Instant::now(), x);
-                        // FIXME: fugly-ass unwrselfing
-                        match &child_state {
+                        // FIXME: fugly-ass unwrapping
+                        match *child_state.borrow() {
                             WriterState::Writing(b) => {
-                                ongoing_write
-                                    .lock()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .write_progress = (b.approximate_ratio() * 1000.0) as u64
+                                self.ongoing_write.unwrap().write_progress =
+                                    (b.approximate_ratio() * 1000.0) as u64
                             }
                             WriterState::Verifying {
                                 total_write_bytes, ..
                             } => {
-                                ongoing_write
-                                    .lock()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .verify_progress = total_write_bytes * 1000 / input_file_bytes
+                                self.ongoing_write.unwrap().verify_progress =
+                                    total_write_bytes * 1000 / input_file_bytes
                             }
                             WriterState::Finished { .. } => break,
                         }
-                        egui_ctx.request_repaint();
+                        ui.ctx().request_repaint();
                     }
                 }
             }

@@ -1,0 +1,136 @@
+use std::{path::PathBuf, sync::Arc, time::Instant};
+
+use futures::StreamExt;
+
+use super::legacy_facade::{DaemonError, LegacyFacade};
+use crate::{
+    escalation::EscalationMethod,
+    facade::{
+        DiskList, DiskWatcher, Escalator, FileAnalyzer, Orchestrator, WVState, WriteVerifyWorkflow,
+        analyze_input::FileAnalysis,
+        watch::Watch,
+        workflow::hash::{HashWorkflow, HashingState},
+    },
+};
+
+/// Actual CaligulaFacade implementation used by Caligula.
+pub struct FacadeImpl<H> {
+    inner: tokio::sync::Mutex<Inner<H>>,
+}
+
+struct Inner<H> {
+    // TODO: get rid of the entire herder facade thing altogether. just assimilate the good parts
+    // into CaligulaFacade.
+    h: H,
+    escalation: Option<Option<EscalationMethod>>,
+}
+
+impl<H> FacadeImpl<H> {
+    pub fn new(h: H) -> Self {
+        Self {
+            inner: Inner {
+                h,
+                escalation: None,
+            }
+            .into(),
+        }
+    }
+}
+
+impl<H: LegacyFacade + Send + 'static> Orchestrator<WriteVerifyWorkflow> for FacadeImpl<H> {
+    async fn start_workflow(&self, params: WriteVerifyWorkflow) -> Watch<WVState> {
+        tracing::info!("Requesting herder to start");
+
+        // request the herder to start the action
+        let mut inner = self.inner.lock().await;
+        let esc = inner.escalation.is_some();
+        let handle: crate::facade::legacy_facade::HerdHandle<
+            crate::herder_api::write_verify::WriteVerifyEvent,
+        > = match inner.h.start_herd(params.make_child_config(), esc).await {
+            Ok(handle) => handle,
+            Err(e) => {
+                // oh god what a shitshow
+                // TODO: refactor the shit out of this thing
+                return Watch {
+                    rx: tokio::sync::watch::channel(WVState::error(
+                        Instant::now(),
+                        match e {
+                            crate::facade::StartWriterError::UnexpectedFirstStatus(s) => {
+                                crate::facade::WriteVerifyWorkflowError::Unexpected(s)
+                            }
+                            crate::facade::StartWriterError::Failed(f) => {
+                                crate::facade::WriteVerifyWorkflowError::Worker(f)
+                            }
+                            crate::facade::StartWriterError::DaemonError(daemon_error) => {
+                                crate::facade::WriteVerifyWorkflowError::Daemon(Arc::new(
+                                    daemon_error,
+                                ))
+                            }
+                        },
+                    ))
+                    .1,
+                };
+            }
+        };
+        drop(inner);
+
+        // create state reduction task
+        let (tx_state, rx_state) = tokio::sync::watch::channel(WVState::initial(
+            Instant::now(),
+            !params.compression.is_identity(),
+            handle.initial_info.input_file_bytes,
+        ));
+        let mut events = handle.events;
+        let _jh = tokio::spawn(async move {
+            while !tx_state.borrow().is_finished() && !tx_state.is_closed() {
+                let event = events.next().await;
+                tx_state.send_modify(move |state| {
+                    *state = std::mem::take(state).on_status(Instant::now(), event);
+                });
+            }
+        });
+        super::watch::Watch { rx: rx_state }
+    }
+}
+
+impl<H: LegacyFacade + Send + 'static> Orchestrator<HashWorkflow> for FacadeImpl<H> {
+    async fn start_workflow(&self, _workflow: HashWorkflow) -> Watch<HashingState> {
+        unimplemented!(
+            "Until this is implemented, for testing purposes, you may replace this with test values."
+        )
+    }
+}
+
+impl<H: LegacyFacade> Escalator for FacadeImpl<H> {
+    async fn escalate(&self, method: Option<EscalationMethod>) -> Result<(), DaemonError> {
+        let mut inner = self.inner.lock().await;
+        inner.escalation = Some(method);
+        inner.h.ensure_escalated_daemon().await?;
+        Ok(())
+    }
+
+    fn is_escalated(&self) -> bool {
+        // TODO: this is badly implemented but it's good enough for writing new UIs
+        // against. It will be improved when we get rid of herder facade.
+        let Ok(lock) = self.inner.try_lock() else {
+            return false;
+        };
+        lock.escalation.is_some()
+    }
+}
+
+impl<H> DiskWatcher for FacadeImpl<H> {
+    fn watch_disks(&self) -> Watch<DiskList> {
+        unimplemented!(
+            "Until this is implemented, for testing purposes, you may replace this with test values."
+        )
+    }
+}
+
+impl<H> FileAnalyzer for FacadeImpl<H> {
+    async fn analyze_file(&self, _input: PathBuf) -> std::io::Result<FileAnalysis> {
+        unimplemented!(
+            "Until this is implemented, for testing purposes, you may replace this with test values."
+        )
+    }
+}

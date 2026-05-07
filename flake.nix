@@ -37,7 +37,7 @@
         overlays = {
           # User-facing overlay
           default = final: prev: {
-            caligula = inputs.self.packages.${prev.system}.caligula;
+            caligula = inputs.self.packages.${prev.stdenv.hostPlatform.system}.caligula;
           };
 
           # Re-export of rust-overlay for internal use
@@ -72,6 +72,7 @@
                   lz4
                   nixfmt
                   python3
+                  taplo
                   xz
                 ]);
             }

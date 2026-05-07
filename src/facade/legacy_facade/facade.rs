@@ -1,27 +1,26 @@
-use super::DaemonError;
-use super::client::LazyHerderClient;
-use super::client::{HerderClient, HerderClientFactory, RawHerderClient};
-use super::{HerdHandle, HerderFacade, StartWriterError};
-use crate::escalation::run_escalate;
-use crate::herder_api::{HerdAction, HerdEvent, TopLevelHerdEvent};
-use crate::ipc_common::read_msg_async;
+use std::{collections::HashMap, hash::Hash, process::Stdio, sync::Arc};
+
 use futures::StreamExt;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::process::Stdio;
-use std::sync::Arc;
-use tokio::io::BufWriter;
-use tokio::process::ChildStdin;
-use tokio::sync::mpsc;
+use tokio::{io::BufWriter, process::ChildStdin, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, trace};
 use tracing_unwrap::ResultExt;
 
-/// Make the actual prod-used [HerderFacade].
+use super::{
+    DaemonError, HerdHandle, LegacyFacade, StartWriterError,
+    client::{HerderClient, HerderClientFactory, LazyHerderClient, RawHerderClient},
+};
+use crate::{
+    escalation::run_escalate,
+    herder_api::{HerdAction, HerdEvent, TopLevelHerdEvent},
+    ipc_common::read_msg_async,
+};
+
+/// Make the actual prod-used [LegacyFacade].
 ///
-/// Doing it this way with a function is so that we can hide all of those ugly ugly ugly
-/// type signatures under a nice `impl HerderFacade + 'static`!
-pub fn make_herder_facade_impl(log_path: &str) -> impl HerderFacade + 'static {
+/// Doing it this way with a function is so that we can hide all of those ugly
+/// ugly ugly type signatures under a nice `impl LegacyFacade + 'static`!
+pub fn make_legacy_facade_impl(log_path: &str) -> impl LegacyFacade + 'static {
     let event_demux = Arc::new(std::sync::Mutex::new(EventDemuxMap::new()));
 
     /// Simple implementor of [HerderClientFactory].
@@ -62,7 +61,7 @@ pub fn make_herder_facade_impl(log_path: &str) -> impl HerderFacade + 'static {
     }
 }
 
-/// Implementation of the actual [HerderFacade] used by Caligula.
+/// Implementation of the actual [LegacyFacade] used by Caligula.
 struct HerderFacadeImpl<Std, Esc> {
     event_demux: Arc<std::sync::Mutex<EventDemuxMap<u64, TopLevelHerdEvent>>>,
     next_writer_id: u64,
@@ -71,7 +70,7 @@ struct HerderFacadeImpl<Std, Esc> {
     escalated_daemon: Esc,
 }
 
-impl<Std, Esc> HerderFacade for HerderFacadeImpl<Std, Esc>
+impl<Std, Esc> LegacyFacade for HerderFacadeImpl<Std, Esc>
 where
     Std: HerderClient,
     Esc: HerderClient,
@@ -163,11 +162,8 @@ impl<K: Hash + Eq, T> EventDemuxMap<K, T> {
             },
             Entry::Vacant(e) => {
                 let (tx, rx) = mpsc::unbounded_channel();
-                match tx.send(t) {
-                    Ok(_) => {
-                        e.insert((tx, Some(rx)));
-                    }
-                    Err(_) => (),
+                if tx.send(t).is_ok() {
+                    e.insert((tx, Some(rx)));
                 }
             }
         }

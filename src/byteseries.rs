@@ -1,6 +1,6 @@
+use std::{fmt::Display, ops::Add, time::Instant};
+
 use crate::ui::ByteSpeed;
-use std::ops::Add;
-use std::{fmt::Display, time::Instant};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EstimatedTimeInfo {
@@ -112,7 +112,8 @@ impl ByteSeries {
         (b1 - b0) / window
     }
 
-    /// Returns a series of points representing a timeseries, aggregated by the given window size.
+    /// Returns a series of points representing a timeseries, aggregated by the
+    /// given window size.
     pub fn speeds(&self, window: f64) -> impl Iterator<Item = (f64, f64)> + '_ {
         let bins = (self.last_datapoint().0 / window).ceil() as usize;
         (0..bins).map(move |i| {
@@ -170,11 +171,11 @@ impl ByteSeries {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::EstimatedTime;
-    use super::{ByteSeries, EstimatedTimeInfo};
     use approx::assert_relative_eq;
     use chrono::{Local, TimeZone};
     use test_case::test_case;
+
+    use super::{ByteSeries, EstimatedTime, EstimatedTimeInfo};
 
     fn example_2s() -> ByteSeries {
         let now = Instant::now();

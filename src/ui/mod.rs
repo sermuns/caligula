@@ -5,21 +5,21 @@ mod utils;
 
 use std::{fs::File, sync::Arc};
 
-pub use self::cli::BurnArgs;
-pub use self::utils::ByteSpeed;
+use tracing::{debug, info};
+
+pub use self::{cli::BurnArgs, utils::ByteSpeed};
 use crate::{
+    facade::CaligulaFacade,
     logging::LogPaths,
-    orchestrator::Orchestrator,
     runtime::RemoteSpawn,
     tty::TermiosRestore,
     ui::{simple_ui::do_setup_wizard, utils::TUICapture},
 };
-use tracing::{debug, info};
 
 /// Entrypoint for both TUI-based UIs.
 pub fn main(
     runtime: impl RemoteSpawn,
-    orc: Arc<impl Orchestrator + Send + Sync + 'static>,
+    facade: Arc<impl CaligulaFacade>,
     log_paths: Arc<LogPaths>,
     args: BurnArgs,
 ) -> anyhow::Result<()> {
@@ -38,8 +38,8 @@ pub fn main(
         return Ok(());
     };
 
-    let started = simple_ui::try_start_write_or_escalate(
-        orc.clone(),
+    let child_state = simple_ui::try_start_write_or_escalate(
+        facade.clone(),
         &runtime,
         &start_write_verify,
         args.root,
@@ -55,14 +55,14 @@ pub fn main(
             fancy_ui::Params {
                 terminal,
                 begin: &start_write_verify,
-                child_state: started.state,
+                child_state,
                 terminal_events: crossterm::event::EventStream::new(),
                 log_paths: &log_paths,
             },
         );
     } else {
         simple_ui::run(simple_ui::Params {
-            child_state: started.state,
+            child_state,
             log_paths: &log_paths,
         });
     }

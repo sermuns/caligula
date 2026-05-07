@@ -1,12 +1,8 @@
-use std::fs::File;
-use std::panic::set_hook;
-use std::path::Path;
-use std::sync::Mutex;
+use std::{fs::File, panic::set_hook, path::Path, sync::Mutex};
 
 use crossterm::terminal::disable_raw_mode;
 use tracing::Level;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 /// Helper for calculating which files to log to.
 #[derive(Debug, Clone)]

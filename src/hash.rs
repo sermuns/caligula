@@ -1,8 +1,8 @@
+use std::{fmt::Display, io::Read};
+
 use base64::Engine;
 use digest::Digest;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::io::Read;
 
 macro_rules! generate {
     {$(
@@ -16,7 +16,11 @@ macro_rules! generate {
             })*
         ]
     )*} => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        /// A hashing algorithm supported by Caligula.
+        ///
+        /// [`Ord`] is implemented in order by security. Lower-security algorithms are
+        /// less than higher-security algorithms.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
         pub enum HashAlg {
             $($(
                 $enum_arm,
@@ -353,11 +357,10 @@ pub enum HashParseError {
 #[cfg(test)]
 mod tests {
     use base64::Engine;
-
-    use crate::hash::HashAlg;
+    use test_case::test_case;
 
     use super::{HashParseError, parse_hash_input};
-    use test_case::test_case;
+    use crate::hash::HashAlg;
 
     #[test]
     fn parse_valid_sri_hash() {

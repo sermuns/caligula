@@ -76,8 +76,8 @@ impl<W: Write> Write for CountWrite<W> {
 ///
 /// - trivially delegates [`Read`] and [`Seek`]
 /// - trivially delegates [`Write::write`]
-/// - replaces [`Write::flush`] with the platform-specific synchronous call to ensure
-///   that the data has been written to the disk.
+/// - replaces [`Write::flush`] with the platform-specific synchronous call to
+///   ensure that the data has been written to the disk.
 pub struct SyncDataFile(pub File);
 
 impl Read for SyncDataFile {
@@ -100,8 +100,8 @@ impl Write for SyncDataFile {
             self.0.sync_data()
         }
 
-        // On MacOS, calling sync_data() on a disk yields "Inappropriate ioctl for device (os error 25)"
-        // so for now we will just no-op.
+        // On MacOS, calling sync_data() on a disk yields "Inappropriate ioctl for
+        // device (os error 25)" so for now we will just no-op.
         #[cfg(target_os = "macos")]
         {
             Ok(())
@@ -130,7 +130,8 @@ impl<R: Read> FileSourceReader<R> {
         ))
     }
 
-    /// How many bytes we've read from the file. In other words, pre-decompression size.
+    /// How many bytes we've read from the file. In other words,
+    /// pre-decompression size.
     #[inline(always)]
     pub fn read_file_bytes(&self) -> u64 {
         self.0.get_ref().get_ref().get_ref().count()

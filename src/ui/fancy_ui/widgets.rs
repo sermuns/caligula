@@ -13,18 +13,18 @@ use ratatui::{
     },
 };
 
-use crate::orchestrator::WriterState;
+use crate::facade::WVState;
 
 pub struct SpeedChart<'a> {
-    pub state: &'a WriterState,
+    pub state: &'a WVState,
     pub final_time: Instant,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct SpeedChartState {
     /// Due to sample aliasing, the maximum displayed Y value might increase or
-    /// decrease. This keeps track of the maximum Y value ever observed, to prevent
-    /// the chart limits from rapidly changing from the aliasing.
+    /// decrease. This keeps track of the maximum Y value ever observed, to
+    /// prevent the chart limits from rapidly changing from the aliasing.
     max_y_limit: f64,
 }
 
@@ -133,9 +133,9 @@ pub struct WriterProgressBar {
 }
 
 impl WriterProgressBar {
-    pub fn from_writer(state: &WriterState) -> WriterProgressBar {
+    pub fn from_writer(state: &WVState) -> WriterProgressBar {
         match state {
-            WriterState::Writing(st) => WriterProgressBar {
+            WVState::Writing(st) => WriterProgressBar {
                 bytes_written: st.write_hist.bytes_encountered(),
                 label_state: "Burning...",
                 style: Style::default().fg(Color::Yellow),
@@ -143,7 +143,7 @@ impl WriterProgressBar {
                 display_total_bytes: st.total_raw_bytes,
             },
 
-            WriterState::Verifying {
+            WVState::Verifying {
                 verify_hist,
                 total_write_bytes,
                 ..
@@ -154,20 +154,20 @@ impl WriterProgressBar {
                 Style::default().fg(Color::Blue).bg(Color::Yellow),
             ),
 
-            WriterState::Finished {
+            WVState::Finished {
                 write_hist,
-                error,
+                result,
                 total_write_bytes,
                 ..
             } => WriterProgressBar::from_simple(
                 write_hist.bytes_encountered(),
                 *total_write_bytes,
-                if error.is_some() {
+                if result.is_err() {
                     "Error!"
                 } else {
                     "Done! Press q to quit."
                 },
-                if error.is_some() {
+                if result.is_err() {
                     Style::default().fg(Color::White).bg(Color::Red)
                 } else {
                     Style::default().fg(Color::Green).bg(Color::Black)
@@ -188,9 +188,10 @@ impl WriterProgressBar {
 
     /// This function clamps the ratio to [0, 1].
     ///
-    /// Unfortunately, it is sometimes outside of [0, 1]. The most common example is when
-    /// we write a non-block-aligned file, in which case bytes_written > max because we
-    /// compensate by writing the partial block.
+    /// Unfortunately, it is sometimes outside of [0, 1]. The most common
+    /// example is when we write a non-block-aligned file, in which case
+    /// bytes_written > max because we compensate by writing the partial
+    /// block.
     pub fn ratio(&self) -> f64 {
         self.ratio.clamp(0.0, 1.0)
     }
@@ -223,7 +224,7 @@ impl WriterProgressBar {
 pub struct WritingInfoTable<'a> {
     pub input_filename: &'a str,
     pub target_filename: &'a str,
-    pub state: &'a WriterState,
+    pub state: &'a WVState,
 }
 
 impl WritingInfoTable<'_> {
@@ -240,13 +241,13 @@ impl WritingInfoTable<'_> {
         ];
 
         match &self.state {
-            WriterState::Writing(st) => {
+            WVState::Writing(st) => {
                 rows.push(Row::new([
                     Cell::from("ETA Write"),
                     Cell::from(format!("{}", st.eta_write())),
                 ]));
             }
-            WriterState::Verifying {
+            WVState::Verifying {
                 verify_hist: vdata,
                 total_write_bytes,
                 ..
@@ -260,7 +261,7 @@ impl WritingInfoTable<'_> {
                     Cell::from(format!("{}", vdata.estimated_time_left(*total_write_bytes))),
                 ]));
             }
-            WriterState::Finished {
+            WVState::Finished {
                 verify_hist: vdata, ..
             } => {
                 if let Some(vdata) = vdata {
@@ -303,9 +304,9 @@ impl QuitModal {
         Self { _private: () }
     }
 
-    /// Handle a key down event. If this would conclude the modal, returns the result.
-    /// Otherwise, if an indecisive keystroke was detected and we are to stay inside the
-    /// modal, returns None.
+    /// Handle a key down event. If this would conclude the modal, returns the
+    /// result. Otherwise, if an indecisive keystroke was detected and we
+    /// are to stay inside the modal, returns None.
     pub fn handle_key_down(self, kc: KeyCode) -> Option<QuitModalResult> {
         use KeyCode::*;
         use QuitModalResult::*;

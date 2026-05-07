@@ -1,12 +1,12 @@
 mod zstd_streaming_decoder;
 
-use clap::ValueEnum;
 use std::{
     fmt::Display,
     io::{BufRead, Read},
     path::Path,
 };
 
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 macro_rules! generate {
@@ -90,6 +90,7 @@ macro_rules! generate {
             }
         }
 
+        #[expect(clippy::large_enum_variant, reason = "eh whatever who cares")]
         pub enum DecompressRead<$reader_typename: BufRead> {
             Identity($reader_typename),
             $(

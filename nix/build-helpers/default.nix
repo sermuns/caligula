@@ -16,7 +16,9 @@
       };
 
       supportedTargets = self.lib.calculateSupportedTargets system;
-      baseToolchain = pkgs.rust-bin.stable.latest.default;
+      stable = pkgs.rust-bin.stable.latest;
+      baseToolchain = stable.minimal;
+      nightly = pkgs.rust-bin.nightly.latest;
 
       perTarget =
         target:
@@ -42,7 +44,16 @@
             name = "lint.sh";
             runtimeInputs = [
               bash
-              baseToolchain
+              nixfmt
+              taplo
+
+              nightly.rustfmt
+              (baseToolchain.override {
+                extensions = [
+                  "rust-src"
+                  "clippy"
+                ];
+              })
             ]
             # own system's build inputs
             ++ (perTarget system).buildInputs;
@@ -68,7 +79,12 @@
         in
         pkgs.mkShell (
           {
-            buildInputs = [ rust ] ++ lib.concatMap (target: (perTarget target).buildInputs) supportedTargets;
+            buildInputs = [
+              rust
+              stable.clippy
+              nightly.rustfmt
+            ]
+            ++ lib.concatMap (target: (perTarget target).buildInputs) supportedTargets;
           }
           // extraEnv
         );

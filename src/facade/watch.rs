@@ -1,15 +1,17 @@
 use std::{fmt::Debug, ops::Deref};
+
 use tokio::sync::watch;
 
 /// A handle for you to watch state changes.
 ///
-/// This is used because state change events may arrive from the child process at a
-/// much faster rate than a UI should reasonably draw them. On UI updates, you can
-/// query this object for new
+/// This is used because state change events may arrive from the child process
+/// at a much faster rate than a UI should reasonably draw them. On UI updates,
+/// you can query this object for new
 ///
-/// Technically speaking, this is just a thin wrapper around [`watch::Receiver<S>`].
-/// We may change the underlying implementation of this later, so I'm wrapping it
-/// like so in order to prevent us from needing to do more refactors later.
+/// Technically speaking, this is just a thin wrapper around
+/// [`watch::Receiver<S>`]. We may change the underlying implementation of this
+/// later, so I'm wrapping it like so in order to prevent us from needing to do
+/// more refactors later.
 #[derive(Clone)]
 pub struct Watch<S> {
     pub(super) rx: watch::Receiver<S>,
@@ -33,8 +35,8 @@ pub struct ClosedEarly;
 impl<S> Watch<S> {
     /// Returns a reference to the most recent state.
     ///
-    /// WARNING: Outstanding borrows hold a read lock on the inner value! If you hold this,
-    /// the state reducer may not be able to update the state!
+    /// WARNING: Outstanding borrows hold a read lock on the inner value! If you
+    /// hold this, the state reducer may not be able to update the state!
     pub fn borrow(&self) -> Ref<'_, S> {
         Ref {
             r: self.rx.borrow(),

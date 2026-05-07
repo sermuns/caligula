@@ -1,3 +1,9 @@
+//! Defines traits and modules for IPC between the child process and parent
+//! process.
+//!
+//! The UI may speak some of these types, but it should prefer to use the
+//! higher-level interfaces defined in [`crate::facade`].
+
 pub mod write_verify;
 
 use std::fmt::{Debug, Display};
@@ -14,7 +20,8 @@ pub struct StartHerd<A> {
     pub action: A,
 }
 
-/// Arbitrary herd initialization action. This can be anything, from writing to verifying to voiding.
+/// Arbitrary herd initialization action. This can be anything, from writing to
+/// verifying to voiding.
 pub trait HerdAction:
     Serialize + DeserializeOwned + Debug + Clone + PartialEq + Send + 'static
 {
@@ -33,12 +40,12 @@ pub trait HerdEvent:
     + Send
     + 'static
 {
-    /// The initial information variant that it's expected to send out as soon as it
-    /// has started running.
+    /// The initial information variant that it's expected to send out as soon
+    /// as it has started running.
     type StartInfo: Debug;
 
-    /// A failure variant indicating that this herd has terminated unexpectedly and fatally
-    /// without any hope of recovery.
+    /// A failure variant indicating that this herd has terminated unexpectedly
+    /// and fatally without any hope of recovery.
     type Failure: Display + Debug;
 
     /// Downcast this event trait into its InitialInfo variant.
@@ -59,6 +66,7 @@ macro_rules! impl_try_from_top_level_herd_event {
     ($arm:ident => $event_type:ty) => {
         impl TryFrom<crate::herder_api::TopLevelHerdEvent> for $event_type {
             type Error = crate::herder_api::TopLevelHerdEvent;
+
             fn try_from(
                 ev: crate::herder_api::TopLevelHerdEvent,
             ) -> Result<Self, crate::herder_api::TopLevelHerdEvent> {
@@ -71,4 +79,4 @@ macro_rules! impl_try_from_top_level_herd_event {
     };
 }
 
-pub(self) use impl_try_from_top_level_herd_event;
+use impl_try_from_top_level_herd_event;

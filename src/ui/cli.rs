@@ -1,8 +1,8 @@
-use is_terminal::IsTerminal;
-use itertools::Itertools;
 use std::{fmt::Display, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
+use is_terminal::IsTerminal;
+use itertools::Itertools;
 
 use crate::{
     compression::CompressionArg,
@@ -30,22 +30,26 @@ pub struct BurnArgs {
     ///
     ///  - `none` means no compression.
     ///
-    /// All other options are compression formats supported by this build of caligula.
+    /// All other options are compression formats supported by this build of
+    /// caligula.
     #[arg(short = 'z', long, default_value = "ask")]
     pub compression: CompressionArg,
 
-    /// The hash of the input file. This can be provided in one of several formats:
+    /// The hash of the input file. This can be provided in one of several
+    /// formats:
     ///
     ///  - `ask` to ask the user for a hash
     ///
     ///  - `skip` or `none` to not do hash verification
     ///
-    ///  - an SRI-like string with either base16 or base64 in the format of `<alg>-<hash>`
-    ///    (i.e. `sha256-EVSTQN3/azprGF...`)
+    ///  - an SRI-like string with either base16 or base64 in the format of
+    ///    `<alg>-<hash>` (i.e. `sha256-EVSTQN3/azprGF...`)
     ///
-    ///  - just a hash value, and we will guess the algorithm (i.e. `EVSTQN3/azprGF...`)
+    ///  - just a hash value, and we will guess the algorithm (i.e.
+    ///    `EVSTQN3/azprGF...`)
     ///
-    /// The following algorithms are supported: md5, sha1, sha224, sha256, sha384, sha512
+    /// The following algorithms are supported: md5, sha1, sha224, sha256,
+    /// sha384, sha512
     #[arg(
         short = 's',
         long,
@@ -76,11 +80,13 @@ pub struct BurnArgs {
     #[arg(long, default_value = "auto")]
     pub interactive: Interactive,
 
-    /// If supplied, we will not ask for confirmation before destroying your disk.
+    /// If supplied, we will not ask for confirmation before destroying your
+    /// disk.
     #[arg(short, long)]
     pub force: bool,
 
-    /// If we don't have permissions on the output file, should we try to become root?
+    /// If we don't have permissions on the output file, should we try to become
+    /// root?
     #[arg(long, default_value = "ask")]
     pub root: UseSudo,
 }
@@ -179,11 +185,10 @@ impl Interactive {
 #[cfg(test)]
 mod tests {
     use base64::Engine;
-
-    use crate::hash::HashAlg;
+    use test_case::test_case;
 
     use super::{HashArg, parse_hash_arg};
-    use test_case::test_case;
+    use crate::hash::HashAlg;
 
     #[test]
     fn parse_valid_hash() {

@@ -6,19 +6,21 @@ use tokio::{
 
 pub type FutureFactory = Box<dyn FnOnce() -> LocalBoxFuture<'static, ()> + Send>;
 
+/// Abstract interface for a single-threaded async runtime running on a
+/// different thread.
 pub trait RemoteSpawn {
-    /// Schedule a future to be spawned on a remote async thread, and return a handle for awaiting its
-    /// completion.
+    /// Schedule a future to be spawned on a remote async thread, and return a
+    /// handle for awaiting its completion.
     ///
-    /// Notably, although the function that creates the future needs to be [`Send`], the future
-    /// itself does not need to be [`Send`].
+    /// Notably, although the function that creates the future needs to be
+    /// [`Send`], the future itself does not need to be [`Send`].
     fn spawn<Fut, T>(&self, f: impl FnOnce() -> Fut + Send + 'static) -> oneshot::Receiver<T>
     where
         T: Send + 'static,
         Fut: Future<Output = T> + 'static;
 }
 
-impl<'a, Sp: RemoteSpawn> RemoteSpawn for &'a Sp {
+impl<Sp: RemoteSpawn> RemoteSpawn for &Sp {
     fn spawn<Fut, T>(&self, f: impl FnOnce() -> Fut + Send + 'static) -> oneshot::Receiver<T>
     where
         T: Send + 'static,

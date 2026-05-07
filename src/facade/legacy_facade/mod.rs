@@ -1,24 +1,26 @@
 //! WARNING: HERE THERE BE DRAGONS
 //!
-//! The good parts of this submodule will get assimilated into orchestrator once I get back to working
-//! on the stdiomux branch. Don't rely on this module whatsoever! Orchestrator is mildly stable though.
+//! The good parts of this submodule will get assimilated into CaligulaFacade
+//! once I get back to working on the stdiomux branch. Don't rely on this module
+//! whatsoever! CaligulaFacade is mildly stable though.
 
 mod client;
 mod facade;
 
+pub use facade::make_legacy_facade_impl;
 use futures::stream::BoxStream;
 
 use crate::herder_api::{HerdAction, HerdEvent, TopLevelHerdEvent};
 
-pub use facade::make_herder_facade_impl;
-
-/// Simple facade to an object that handles the herding of all child processes and subherds.
-/// This includes lifecycle management and communication.
+/// Simple facade to an object that handles the herding of all child processes
+/// and subherds. This includes lifecycle management and communication.
 ///
-/// Why "Herder"? Caligula liked his horse, and horses are herded. I think. I'm not a farmer.
+/// Why "Herder"? Caligula liked his horse, and horses are herded. I think. I'm
+/// not a farmer.
 ///
-/// Making it a trait is so that we can easily test the UI as a separate component from the backend.
-pub trait HerderFacade {
+/// Making it a trait is so that we can easily test the UI as a separate
+/// component from the backend.
+pub trait LegacyFacade {
     async fn start_herd<A: HerdAction>(
         &mut self,
         action: A,

@@ -649,6 +649,7 @@ dependencies = [
  "bincode",
  "bindgen",
  "byteorder",
+ "bytes",
  "bytesize",
  "bzip2",
  "cc",

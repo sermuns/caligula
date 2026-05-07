@@ -6,7 +6,7 @@ use tracing::debug;
 use crate::{
     compression::{AVAILABLE_FORMATS, CompressionArg, CompressionFormat},
     device::{self, Removable, WriteTarget, enumerate_devices},
-    orchestrator::WriteVerifyParams,
+    facade::WriteVerifyWorkflow,
     ui::cli::BurnArgs,
 };
 
@@ -43,7 +43,7 @@ pub fn ask_compression(args: &BurnArgs) -> anyhow::Result<CompressionFormat> {
     }
     let format = Select::new("What format to use?", AVAILABLE_FORMATS.to_vec()).prompt()?;
 
-    return Ok(format);
+    Ok(format)
 }
 
 #[tracing::instrument(skip_all)]
@@ -80,7 +80,7 @@ pub fn ask_outfile(args: &BurnArgs) -> anyhow::Result<WriteTarget> {
 #[tracing::instrument(skip_all)]
 pub fn confirm_write(
     args: &BurnArgs,
-    begin_params: &WriteVerifyParams,
+    begin_params: &WriteVerifyWorkflow,
 ) -> Result<bool, InquireError> {
     if args.force {
         debug!("Skipping confirm because of --force");
@@ -95,7 +95,7 @@ pub fn confirm_write(
     }
 }
 
-fn print_begin_params(params: &WriteVerifyParams) {
+fn print_begin_params(params: &WriteVerifyWorkflow) {
     println!("Input: {}", params.input_file.to_string_lossy());
     if params.compression.is_identity() {
         println!("  Size: {}", params.input_file_size);

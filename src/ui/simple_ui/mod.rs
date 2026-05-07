@@ -1,51 +1,54 @@
 //! The "simple UI". This is module holds subroutines that don't use ratatui,
 //! and don't take up the entire terminal screen.
 //!
-//! As pretty as ratatui looks, sometimes you can't use a full-featured terminal.
-//! This is what this module is for.
+//! As pretty as ratatui looks, sometimes you can't use a full-featured
+//! terminal. This is what this module is for.
 
-use self::ask_hash::ask_hash;
-use self::ask_outfile::ask_compression;
-use self::ask_outfile::ask_outfile;
-use self::ask_outfile::confirm_write;
+use std::{sync::Arc, time::Duration};
+
+use indicatif::{ProgressBar, ProgressStyle};
+use inquire::Confirm;
+use tracing::debug;
+
+use self::{
+    ask_hash::ask_hash,
+    ask_outfile::{ask_compression, ask_outfile, confirm_write},
+    facade_ext::FacadeExt as _,
+};
 use super::cli::BurnArgs;
-use crate::logging::LogPaths;
 use crate::{
     device::WriteTarget,
-    herder_api::write_verify::{WriteVerifyError, WriteVerifyEvent},
-    orchestrator::{
-        Orchestrator, OrchestratorExt, StartWriterError, WriteVerifyParams, WriteVerifyStarted,
-        WriterState, watch::Watch,
+    facade::{
+        CaligulaFacade, DaemonError, WVState, WriteVerifyWorkflow, watch::Watch,
+        workflow::write_verify::WriteVerifyWorkflowError,
     },
+    herder_api::write_verify::LegacyWriteVerifyError,
+    logging::LogPaths,
     runtime::RemoteSpawn,
     ui::cli::UseSudo,
 };
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
-use inquire::Confirm;
-use std::sync::Arc;
-use std::time::Duration;
-use tracing::debug;
 
 mod ask_hash;
 mod ask_outfile;
+mod facade_ext;
 
 /// How often we refresh the display
 const REFRESH_PERIOD: Duration = Duration::from_millis(250);
 
-/// Run the simple UI setup wizard, a cruel being that interrogates the user until it is
-/// satisfied with its answers.
+/// Run the simple UI setup wizard, a cruel being that interrogates the user
+/// until it is satisfied with its answers.
 ///
-/// Returns the [BeginParams] if the user confirms, and None if the user doesn't.
+/// Returns the [BeginParams] if the user confirms, and None if the user
+/// doesn't.
 #[tracing::instrument(skip_all)]
-pub fn do_setup_wizard(args: &BurnArgs) -> Result<Option<WriteVerifyParams>, anyhow::Error> {
+pub fn do_setup_wizard(args: &BurnArgs) -> Result<Option<WriteVerifyWorkflow>, anyhow::Error> {
     let compression = ask_compression(args)?;
     let _hash_info = ask_hash(args, compression)?;
     let target = match &args.out {
         Some(f) => WriteTarget::try_from(f.as_ref())?,
         None => ask_outfile(args)?,
     };
-    let begin_params = WriteVerifyParams::new(args.image.clone(), compression, target)?;
+    let begin_params = WriteVerifyWorkflow::new(args.image.clone(), compression, target)?;
     if !confirm_write(args, &begin_params)? {
         eprintln!("Aborting.");
         return Ok(None);
@@ -54,25 +57,33 @@ pub fn do_setup_wizard(args: &BurnArgs) -> Result<Option<WriteVerifyParams>, any
 }
 
 pub struct Params<'a> {
-    pub child_state: Watch<WriterState>,
+    pub child_state: Watch<WVState>,
     pub log_paths: &'a LogPaths,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WriteOrEscalateError {
+    #[error("Error spawning writer: {0}")]
+    Write(#[from] Arc<WriteVerifyWorkflowError>),
+    #[error("Error escalating: {0}")]
+    Escalate(#[from] DaemonError),
 }
 
 /// Attempt to start burning the disk with the given params.
 ///
-/// If received permission denied, figures out if it needs to ask the user to sudo
-/// based on what's provided in the `root` argument.
+/// If received permission denied, figures out if it needs to ask the user to
+/// sudo based on what's provided in the `root` argument.
 #[tracing::instrument(skip_all, fields(root, interactive))]
 pub fn try_start_write_or_escalate(
-    orc: Arc<impl Orchestrator>,
+    facade: Arc<impl CaligulaFacade>,
     runtime: &impl RemoteSpawn,
-    args: &WriteVerifyParams,
+    args: &WriteVerifyWorkflow,
     root: UseSudo,
     interactive: bool,
-) -> Result<WriteVerifyStarted, StartWriterError<WriteVerifyEvent>> {
+) -> Result<Watch<WVState>, WriteOrEscalateError> {
     tracing::info!("Starting burn without escalation");
 
-    let err = match orc
+    let err = match facade
         .clone()
         .start_write_verify_blocking(runtime, args.clone())
     {
@@ -82,7 +93,8 @@ pub fn try_start_write_or_escalate(
         Err(e) => e,
     };
 
-    if let StartWriterError::Failed(WriteVerifyError::PermissionDenied) = &err {
+    if let WriteVerifyWorkflowError::Worker(LegacyWriteVerifyError::PermissionDenied) = err.as_ref()
+    {
         tracing::info!("Unescalated burn failed");
         match (root, interactive) {
             (UseSudo::Ask, true) => {
@@ -100,19 +112,19 @@ pub fn try_start_write_or_escalate(
                 .expect("prompting the user should not fail");
 
                 if response {
-                    orc.clone().escalate_blocking(runtime, None)?;
-                    return Ok(orc.start_write_verify_blocking(runtime, args.clone())?);
+                    facade.clone().escalate_blocking(runtime, None)?;
+                    return Ok(facade.start_write_verify_blocking(runtime, args.clone())?);
                 }
             }
             (UseSudo::Always, _) => {
-                orc.clone().escalate_blocking(runtime, None)?;
-                return Ok(orc.start_write_verify_blocking(runtime, args.clone())?);
+                facade.clone().escalate_blocking(runtime, None)?;
+                return Ok(facade.start_write_verify_blocking(runtime, args.clone())?);
             }
             _ => {}
         }
     }
 
-    Err(err.into())
+    Err(err)?
 }
 
 /// Run the simple TUI.
@@ -139,10 +151,10 @@ pub fn run<'a>(params: Params<'a>) {
 
         let child_state = params.child_state.borrow();
         match &*child_state {
-            WriterState::Writing(b) => {
+            WVState::Writing(b) => {
                 write_progress.set_position((b.approximate_ratio() * (length as f64)) as u64)
             }
-            WriterState::Verifying {
+            WVState::Verifying {
                 verify_hist,
                 total_write_bytes,
                 ..
@@ -150,13 +162,13 @@ pub fn run<'a>(params: Params<'a>) {
                 let ratio = verify_hist.bytes_encountered() as f64 / *total_write_bytes as f64;
                 verify_progress.set_position((ratio * (length as f64)) as u64)
             }
-            WriterState::Finished { error, .. } => {
-                match error {
-                    Some(error) => {
+            WVState::Finished { result, .. } => {
+                match result {
+                    Err(error) => {
                         println!("Error occurred while writing: {error}");
                         println!("{}", params.log_paths.get_bug_report_msg());
                     }
-                    None => {
+                    Ok(()) => {
                         println!("Done!")
                     }
                 }

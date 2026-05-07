@@ -1,6 +1,7 @@
 //! This code is copied from [zstd-rs PR #62](https://github.com/KillingSpark/zstd-rs/pull/62).
-//! It is vendored in and slightly modified because I am too impatient to wait for it
-//! to be merged and published to crates.io, and nixpkgs does not enjoy git dependencies.
+//! It is vendored in and slightly modified because I am too impatient to wait
+//! for it to be merged and published to crates.io, and nixpkgs does not enjoy
+//! git dependencies.
 
 #![allow(dead_code)]
 
@@ -15,8 +16,8 @@
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -28,19 +29,23 @@
 
 use core::borrow::BorrowMut;
 
-use ruzstd::frame_decoder::{BlockDecodingStrategy, FrameDecoder, FrameDecoderError};
-use ruzstd::io::{Error, ErrorKind, Read};
+use ruzstd::{
+    frame_decoder::{BlockDecodingStrategy, FrameDecoder, FrameDecoderError},
+    io::{Error, Read},
+};
 
 /// High level decoder that implements a io::Read that can be used with
-/// io::Read::read_to_end / io::Read::read_exact or passing this to another library / module as a source for the decoded content
+/// io::Read::read_to_end / io::Read::read_exact or passing this to another
+/// library / module as a source for the decoded content
 ///
-/// The lower level FrameDecoder by comparison allows for finer grained control but need sto have it's decode_blocks method called continuously
+/// The lower level FrameDecoder by comparison allows for finer grained control
+/// but need sto have it's decode_blocks method called continuously
 /// to decode the zstd-frame.
 ///
 /// ## Caveat
-/// [StreamingDecoder] expects the underlying stream to only contain a single frame.
-/// To decode all the frames in a finite stream, the calling code needs to recreate
-/// the instance of the decoder
+/// [StreamingDecoder] expects the underlying stream to only contain a single
+/// frame. To decode all the frames in a finite stream, the calling code needs
+/// to recreate the instance of the decoder
 /// and handle
 /// [crate::frame::ReadFrameHeaderError::SkipFrame]
 /// errors by skipping forward the `length` amount of bytes, see <https://github.com/KillingSpark/zstd-rs/issues/57>
@@ -112,11 +117,13 @@ impl<READ: Read, DEC: BorrowMut<FrameDecoder>> Read for StreamingDecoder<READ, D
             return Ok(0);
         }
 
-        // need to loop. The UpToBytes strategy doesn't take any effort to actually reach that limit.
-        // The first few calls can result in just filling the decode buffer but these bytes can not be collected.
-        // So we need to call this until we can actually collect enough bytes
+        // need to loop. The UpToBytes strategy doesn't take any effort to actually
+        // reach that limit. The first few calls can result in just filling the
+        // decode buffer but these bytes can not be collected. So we need to
+        // call this until we can actually collect enough bytes
 
-        // TODO add BlockDecodingStrategy::UntilCollectable(usize) that pushes this logic into the decode_blocks function
+        // TODO add BlockDecodingStrategy::UntilCollectable(usize) that pushes this
+        // logic into the decode_blocks function
         while decoder.can_collect() < buf.len() && !decoder.is_finished() {
             //More bytes can be decoded
             let additional_bytes_needed = buf.len() - decoder.can_collect();
@@ -126,7 +133,7 @@ impl<READ: Read, DEC: BorrowMut<FrameDecoder>> Read for StreamingDecoder<READ, D
             ) {
                 Ok(_) => { /*Nothing to do*/ }
                 Err(e) => {
-                    let err = Error::new(ErrorKind::Other, e);
+                    let err = Error::other(e);
                     return Err(err);
                 }
             }

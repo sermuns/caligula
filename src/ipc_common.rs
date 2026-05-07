@@ -52,9 +52,8 @@ pub async fn read_msg_async<T: DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
-    use crate::ipc_common::read_msg_async;
-
     use super::*;
+    use crate::ipc_common::read_msg_async;
 
     #[tokio::test]
     async fn write_read_roundtrip() {

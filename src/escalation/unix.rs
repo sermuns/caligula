@@ -8,6 +8,7 @@ use super::EscalationError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display)]
 pub enum EscalationMethod {
+    // TODO: add a GUI sudo method for Linuxes
     #[display(fmt = "sudo")]
     Sudo,
     #[display(fmt = "doas")]
@@ -27,8 +28,8 @@ pub struct Command<'a> {
 }
 
 impl EscalationMethod {
-    // Order is relevant here. Since this array is enumerated in `EscalationMethod::detect()`
-    // The first esalation found tool will be used
+    // Order is relevant here. Since this array is enumerated in
+    // `EscalationMethod::detect()` The first esalation found tool will be used
     const ALL: [EscalationMethod; 4] = [Self::Sudo, Self::Doas, Self::Run0, Self::Su];
 
     pub fn detect() -> Result<Self, EscalationError> {

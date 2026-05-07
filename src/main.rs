@@ -3,12 +3,13 @@ use std::sync::Arc;
 use clap::{CommandFactory as _, Parser};
 use tracing::debug;
 
-use crate::orchestrator::make_orchestrator_impl;
+use crate::facade::make_real_facade;
 
 mod byteseries;
 mod compression;
 mod device;
 mod escalation;
+mod facade;
 mod hash;
 mod hashfile;
 mod herder_api;
@@ -16,7 +17,6 @@ mod herder_daemon;
 mod ipc_common;
 mod logging;
 mod native;
-mod orchestrator;
 mod runtime;
 mod tty;
 mod ui;
@@ -43,8 +43,9 @@ pub enum Command {
 
     /// INTERNAL ONLY!
     ///
-    /// This is a backend entrypoint that is used in implementing automatic root escalation.
-    /// There are ZERO stability guarantees. Do NOT rely on this interface for anything.
+    /// This is a backend entrypoint that is used in implementing automatic root
+    /// escalation. There are ZERO stability guarantees. Do NOT rely on this
+    /// interface for anything.
     #[command(name = "_herder", hide = true)]
     HerderDaemon(HerderDaemonArgs),
 }
@@ -67,10 +68,10 @@ fn main() {
             logging::init_logging_parent(&log_paths);
 
             let runtime = crate::runtime::AsyncRuntime::start();
-            let orc = Arc::new(make_orchestrator_impl(log_paths.main()));
+            let facade = Arc::new(make_real_facade(log_paths.main()));
 
             debug!("Starting primary process");
-            match ui::main(runtime, orc, log_paths.into(), burn_args) {
+            match ui::main(runtime, facade, log_paths.into(), burn_args) {
                 Ok(_) => (),
                 Err(e) => handle_toplevel_error(e),
             }
@@ -84,7 +85,7 @@ fn main() {
             logging::init_logging_parent(&log_paths);
 
             let runtime = crate::runtime::AsyncRuntime::start();
-            let orc = Arc::new(make_orchestrator_impl(log_paths.main()));
+            let orc = Arc::new(make_real_facade(log_paths.main()));
 
             debug!("Starting primary process");
             match gui::main(runtime, orc, log_paths.into()) {
@@ -115,8 +116,8 @@ fn handle_toplevel_error(err: anyhow::Error) {
     }
 }
 
-/// Parse [Args] from the provided args, but format the help in an easy way for generating
-/// the section in the README.md.
+/// Parse [Args] from the provided args, but format the help in an easy way for
+/// generating the section in the README.md.
 fn parse_args_for_readme_generation() -> Args {
     use clap::FromArgMatches;
 
@@ -133,8 +134,8 @@ fn parse_args_for_readme_generation() -> Args {
     match res {
         Ok(s) => s,
         Err(e) => {
-            // Since this is more of a development-time error, we aren't doing as fancy of a quit
-            // as `get_matches`
+            // Since this is more of a development-time error, we aren't doing as fancy of a
+            // quit as `get_matches`
             e.exit()
         }
     }

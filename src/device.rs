@@ -225,10 +225,10 @@ impl TryFrom<&Path> for WriteTarget {
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
         #[cfg(target_os = "linux")]
-        if value.starts_with("/sys/class/block") || value.starts_with("/dev") {
-            if let Some(n) = value.file_name() {
-                return Self::from_dev_name(n);
-            }
+        if (value.starts_with("/sys/class/block") || value.starts_with("/dev"))
+            && let Some(n) = value.file_name()
+        {
+            return Self::from_dev_name(n);
         }
 
         #[cfg(target_os = "macos")]

@@ -3,9 +3,8 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tracing::info;
 
-use crate::orchestrator::{WriteVerifyParams, WriterState};
-
 use super::widgets::{QuitModal, QuitModalResult, SpeedChartState};
+use crate::facade::{WVState, WriteVerifyWorkflow};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum UIEvent {
@@ -22,7 +21,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn initial(params: &WriteVerifyParams) -> Self {
+    pub fn initial(params: &WriteVerifyWorkflow) -> Self {
         State {
             input_filename: params.input_file.to_string_lossy().to_string(),
             target_filename: params.target.devnode.to_string_lossy().to_string(),
@@ -35,7 +34,7 @@ impl State {
     ///
     /// Returns [`Self`], or [`None`] to signal completion.
     #[tracing::instrument(skip_all, level = "debug", fields(ev))]
-    pub fn on_event(self, child: &WriterState, ev: UIEvent) -> Option<Self> {
+    pub fn on_event(self, child: &WVState, ev: UIEvent) -> Option<Self> {
         match ev {
             UIEvent::SleepTimeout => Some(self),
             UIEvent::RecvTermEvent(e) => self.on_term_event(child, e),
@@ -45,7 +44,7 @@ impl State {
     #[tracing::instrument(skip_all, level = "debug", fields(ev))]
     fn on_term_event(
         self,
-        child: &WriterState,
+        child: &WVState,
         ev: Result<Event, (String, std::io::ErrorKind)>,
     ) -> Option<Self> {
         match ev {
@@ -63,12 +62,7 @@ impl State {
         }
     }
 
-    fn handle_key_down(
-        mut self,
-        child: &WriterState,
-        kc: KeyCode,
-        km: KeyModifiers,
-    ) -> Option<Self> {
+    fn handle_key_down(mut self, child: &WVState, kc: KeyCode, km: KeyModifiers) -> Option<Self> {
         if let Some(qm) = &self.quit_modal {
             return match qm.handle_key_down(kc) {
                 Some(QuitModalResult::Quit) => None,

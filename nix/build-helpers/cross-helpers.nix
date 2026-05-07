@@ -1,7 +1,6 @@
 # Helpers for making a cross-compiling toolchain for caligula.
 # To work, it needs pkgs to have rust-overlay applied to it.
 {
-  system,
   target,
 
   lib,
@@ -23,6 +22,8 @@
   ...
 }:
 let
+  system = stdenv.hostPlatform.system;
+
   # The caligula source code itself.
   src = builtins.path {
     path = ../../.;

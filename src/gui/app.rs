@@ -4,24 +4,23 @@ use egui::{
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Instant,
 };
-use tracing::{error, info};
+use tracing::error;
 
 use crate::{
     compression::CompressionFormat,
     device::{self, Removable, WriteTarget, enumerate_devices},
+    facade::{CaligulaFacade, WVState, WriteVerifyWorkflow},
     hash::{HashAlg, parse_hash_input},
     logging::LogPaths,
-    orchestrator::{Orchestrator, OrchestratorExt, WriteVerifyParams, WriterState},
     runtime::RemoteSpawn,
 };
 
-pub struct App<O: Orchestrator, R: RemoteSpawn> {
+pub struct App<F: CaligulaFacade, R: RemoteSpawn> {
     pub log_paths: Arc<LogPaths>,
     pub options: Options,
     pub ongoing_write: Option<OngoingWrite>,
-    pub orc: Arc<O>,
+    pub orc: Arc<F>,
     pub runtime: R,
 }
 
@@ -44,7 +43,7 @@ pub struct Options {
     #[cfg_attr(debug_assertions, serde(skip))]
     pub has_confirmed_writing: bool,
     #[cfg_attr(debug_assertions, serde(skip))]
-    pub write_verify_params: Option<WriteVerifyParams>,
+    pub write_verify_params: Option<WriteVerifyWorkflow>,
 }
 
 #[derive(Default)]
@@ -59,11 +58,11 @@ pub struct FileHashOptions {
     pub verified: bool,
 }
 
-impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
+impl<F: CaligulaFacade, R: RemoteSpawn> App<F, R> {
     pub fn new(
         cc: &eframe::CreationContext,
         runtime: R,
-        orc: Arc<O>,
+        orc: Arc<F>,
         log_paths: Arc<LogPaths>,
     ) -> Self {
         #[cfg(not(debug_assertions))]
@@ -262,7 +261,7 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
                 // don't unwrap.
                 // actually don't even have this shitty refresh button,
                 // should just refresh when any of the underlying values change
-                self.options.write_verify_params = WriteVerifyParams::new(
+                self.options.write_verify_params = WriteVerifyWorkflow::new(
                     self.options.picked_image.clone().unwrap(),
                     self.options.detected_compression_format.unwrap(),
                     self.options.selected_write_target.clone().unwrap(),
@@ -308,17 +307,17 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
                     loop {
                         // FIXME: fugly-ass unwrapping
                         match *child_state.borrow() {
-                            WriterState::Writing(b) => {
+                            WVState::Writing(b) => {
                                 self.ongoing_write.unwrap().write_progress =
                                     (b.approximate_ratio() * 1000.0) as u64
                             }
-                            WriterState::Verifying {
+                            WVState::Verifying {
                                 total_write_bytes, ..
                             } => {
                                 self.ongoing_write.unwrap().verify_progress =
                                     total_write_bytes * 1000 / input_file_bytes
                             }
-                            WriterState::Finished { .. } => break,
+                            WVState::Finished { .. } => break,
                         }
                         ui.ctx().request_repaint();
                     }
@@ -328,7 +327,7 @@ impl<O: Orchestrator, R: RemoteSpawn> App<O, R> {
     }
 }
 
-impl<O: Orchestrator, R: RemoteSpawn> eframe::App for App<O, R> {
+impl<O: CaligulaFacade, R: RemoteSpawn> eframe::App for App<O, R> {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {}
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

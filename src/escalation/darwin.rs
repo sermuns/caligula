@@ -1,5 +1,7 @@
-use super::EscalationError;
-use super::unix::{Command, EscalationMethod};
+use super::{
+    EscalationError,
+    unix::{Command, EscalationMethod},
+};
 
 pub async fn wrap_osascript_escalation(
     raw: &Command<'_>,

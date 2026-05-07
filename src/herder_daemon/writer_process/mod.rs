@@ -1,26 +1,25 @@
 //! This module has logic for the child process that writes to the disk.
 //!
-//! IT IS NOT TO BE USED DIRECTLY BY THE USER! ITS API HAS NO STABILITY GUARANTEES!
+//! IT IS NOT TO BE USED DIRECTLY BY THE USER! ITS API HAS NO STABILITY
+//! GUARANTEES!
 
-use std::fs::OpenOptions;
-use std::os::unix::process::ExitStatusExt;
-use std::process::{Command, Stdio};
-use std::thread::JoinHandle;
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{self, Read, Seek, Write},
+    os::unix::process::ExitStatusExt,
+    process::{Command, Stdio},
+    thread::JoinHandle,
 };
 
 use aligned_vec::avec_rt;
 use tracing::{debug, info, trace};
 use tracing_unwrap::ResultExt;
 
-use crate::compression::CompressionFormat;
-use crate::device;
-use crate::herder_api::write_verify::*;
-
-use self::utils::{CountRead, CountWrite, FileSourceReader, SyncDataFile};
-use self::xplat::open_blockdev;
+use self::{
+    utils::{CountRead, CountWrite, FileSourceReader, SyncDataFile},
+    xplat::open_blockdev,
+};
+use crate::{compression::CompressionFormat, device, herder_api::write_verify::*};
 
 #[cfg(test)]
 mod tests;
@@ -30,7 +29,8 @@ mod xplat;
 /// Maximum size we may allocate for each buffer.
 const MAX_BUF_SIZE: usize = 1 << 20; // 1MiB
 
-/// How many bytes should be written before we perform a checkpoint (aka report progress).
+/// How many bytes should be written before we perform a checkpoint (aka report
+/// progress).
 const CHECKPOINT_BYTES: usize = 8 * (1 << 20); // 8MiB
 
 pub fn spawn_writer(
@@ -57,7 +57,7 @@ pub fn spawn_writer(
 fn run(
     mut tx: impl FnMut(WriteVerifyEvent),
     args: &WriteVerifyAction,
-) -> Result<(), WriteVerifyError> {
+) -> Result<(), LegacyWriteVerifyError> {
     if cfg!(target_os = "macos") && args.target_type == device::Type::Disk {
         let mut command = Command::new("diskutil");
         command
@@ -81,7 +81,7 @@ fn run(
 
         let exit_code = exit.into_raw();
         if !exit.success() {
-            return Err(WriteVerifyError::FailedToUnmount {
+            return Err(LegacyWriteVerifyError::FailedToUnmount {
                 message: format!("stderr: {stderr}\nstdout: {stdout}"),
                 exit_code,
             });
@@ -195,7 +195,10 @@ struct WriteOp<S: Read, D: Write> {
 impl<S: Read, D: Write> WriteOp<S, D> {
     /// Execute the write operation. Returns total number of bytes written.
     #[inline(always)]
-    fn execute(&mut self, mut tx: impl FnMut(WriteVerifyEvent)) -> Result<u64, WriteVerifyError> {
+    fn execute(
+        &mut self,
+        mut tx: impl FnMut(WriteVerifyEvent),
+    ) -> Result<u64, LegacyWriteVerifyError> {
         let mut file = FileSourceReader::new(self.cf, self.file_read_buf_size, &mut self.file);
         let mut disk = CountWrite::new(&mut self.disk);
         let mut buf = avec_rt![[self.disk_block_size] | 0u8; self.buf_size];
@@ -225,7 +228,7 @@ impl<S: Read, D: Write> WriteOp<S, D> {
                 let written_bytes = disk.write(&buf[..])?;
                 if written_bytes == 0 {
                     checkpoint!();
-                    return Err(WriteVerifyError::EndOfOutput);
+                    return Err(LegacyWriteVerifyError::EndOfOutput);
                 }
             }
             checkpoint!();
@@ -233,7 +236,8 @@ impl<S: Read, D: Write> WriteOp<S, D> {
     }
 }
 
-/// Like [`ReadExt::read_exact`], but if it can't fill the entire buffer, it does not error.
+/// Like [`ReadExt::read_exact`], but if it can't fill the entire buffer, it
+/// does not error.
 #[inline(always)]
 fn try_read_exact(r: &mut impl Read, mut buf: &mut [u8]) -> std::io::Result<usize> {
     // modified from rust stdlib file src/io/mod.rs
@@ -276,7 +280,10 @@ struct VerifyOp<S: Read, D: Read> {
 
 impl<S: Read, D: Read> VerifyOp<S, D> {
     #[inline(always)]
-    fn execute(&mut self, mut tx: impl FnMut(WriteVerifyEvent)) -> Result<(), WriteVerifyError> {
+    fn execute(
+        &mut self,
+        mut tx: impl FnMut(WriteVerifyEvent),
+    ) -> Result<(), LegacyWriteVerifyError> {
         let mut file = FileSourceReader::new(self.cf, self.file_read_buf_size, &mut self.file);
         let mut disk = CountRead::new(&mut self.disk);
 
@@ -304,7 +311,7 @@ impl<S: Read, D: Read> VerifyOp<S, D> {
 
                 if file_buf[..file_read_bytes] != disk_buf[..file_read_bytes] {
                     trace!(file_read_bytes, "verification failed");
-                    return Err(WriteVerifyError::VerificationFailed);
+                    return Err(LegacyWriteVerifyError::VerificationFailed);
                 }
             }
             checkpoint!();

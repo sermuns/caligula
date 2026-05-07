@@ -30,7 +30,7 @@ pub async fn run_escalate(
 
         let mut cmd: tokio::process::Command = EscalationMethod::detect()?.wrap_command(cmd).into();
         modify(&mut cmd);
-        Ok(cmd.spawn().map_err(EscalationError::SpawnFailure)?)
+        cmd.spawn().map_err(EscalationError::SpawnFailure)
     }
 
     #[cfg(target_os = "macos")]

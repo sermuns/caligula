@@ -1,15 +1,16 @@
+use std::{pin::pin, time::Duration};
+
 use futures::{Stream, StreamExt as _, stream};
 use ratatui::{Terminal, prelude::Backend};
 use tokio::sync::mpsc;
 
 use self::state::UIEvent;
 use crate::{
+    facade::{WVState, WriteVerifyWorkflow, watch::Watch},
     logging::LogPaths,
-    orchestrator::{WriteVerifyParams, WriterState, watch::Watch},
     runtime::RemoteSpawn,
     ui::fancy_ui::{display::draw, state::State},
 };
-use std::{pin::pin, time::Duration};
 
 mod display;
 mod state;
@@ -24,8 +25,8 @@ where
     T: Stream<Item = std::io::Result<crossterm::event::Event>> + Send + 'static,
 {
     pub terminal: &'a mut Terminal<B>,
-    pub begin: &'a WriteVerifyParams,
-    pub child_state: Watch<WriterState>,
+    pub begin: &'a WriteVerifyWorkflow,
+    pub child_state: Watch<WVState>,
     pub terminal_events: T,
     pub log_paths: &'a LogPaths,
 }
@@ -87,7 +88,7 @@ fn draw_loop(
     terminal: &mut Terminal<impl Backend>,
     mut state: State,
     events: impl IntoIterator<Item = UIEvent>,
-    child: Watch<WriterState>,
+    child: Watch<WVState>,
     log_paths: &LogPaths,
 ) {
     for ev in events {

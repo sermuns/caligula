@@ -3,4 +3,6 @@
 set -euxo pipefail
 
 cargo fmt --check
-cargo clippy
+cargo clippy -- -D warnings
+taplo format --check Cargo.toml
+nixfmt --check ./**/*.nix

@@ -9,7 +9,7 @@ use std::{
     },
     time::Duration,
 };
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     compression::CompressionFormat,
@@ -56,6 +56,7 @@ pub struct FileHashOptions {
 
 enum WorkerEvent {
     StartWrite(WriteVerifyWorkflow),
+    Abort,
 }
 
 impl App {
@@ -73,6 +74,7 @@ impl App {
                 let Ok(WorkerEvent::StartWrite(write_verify_workflow)) =
                     main_to_worker_rx.try_recv()
                 else {
+                    info!("nothing happening in worker thread, sleeping...");
                     std::thread::sleep(REFRESH_PERIOD);
                     continue;
                 };
@@ -88,17 +90,14 @@ impl App {
                     Ok(state) => state,
                 };
 
-                // WARNING: can i really
-                // clone state?
-                *write_verify_state.lock().unwrap() = Some(state.clone());
+                // WARNING: can i really clone state?
+                write_verify_state.lock().unwrap().replace(state.clone());
 
-                loop {
-                    if matches!(&*state.borrow(), WVState::Finished { .. }) {
-                        break; // installation done!
-                    }
+                while !matches!(&*state.borrow(), WVState::Finished { .. }) {
                     ui_ctx.request_repaint();
                     std::thread::sleep(REFRESH_PERIOD);
                 }
+                ui_ctx.request_repaint();
             }
         });
     }
@@ -311,38 +310,19 @@ impl App {
         ui.add_enabled_ui(self.is_ready_for_writing(), |ui| {
             ui.strong("Write");
             if ui.button("Prepare for writing").clicked() {
-                // FIXME:
-                // don't unwrap.
-                // actually don't even have this shitty refresh button,
-                // should just refresh when any of the underlying values change
-                // self.options.write_verify_params = WriteVerifyWorkflow::new(
-                //     self.options.picked_image.clone().unwrap(),
-                //     self.options.detected_compression_format.unwrap(),
-                //     self.options.selected_write_target.clone().unwrap(),
-                // )
-                // .ok();
-            }
+                // FIXME: unwrapping! if any are missing we need to show this to user instead
+                // TODO: remove this button and automaatically populate this ingoing values all are Some
+                let write_verify_workflow = WriteVerifyWorkflow::new(
+                    self.options.picked_image.clone().unwrap(),
+                    self.options.detected_compression_format.unwrap(),
+                    self.options.selected_write_target.clone().unwrap(),
+                )
+                .unwrap();
 
-            // if let Some(write_verify_params) = &self.options.write_verify_params {
-            //     // TODO: show summary!
-            //     // ui.label(write_verify_params.to_string());
-            //
-            //     ui.label(RichText::new("Ready to write!").color(Color32::GREEN));
-            //
-            //     if !self.options.has_confirmed_writing {
-            //         if ui.button("Perform write").clicked() {
-            //             self.options.has_confirmed_writing = true;
-            //         }
-            //         return;
-            //     }
-            //
-            //     ui.label(
-            //         RichText::new("THIS ACTION WILL DESTROY ALL DATA ON THIS DEVICE!!!")
-            //             .color(Color32::YELLOW),
-            //     );
-            //
-            //     if ui.button("I know, do it!").clicked() {}
-            // }
+                self.main_to_worker_tx
+                    .send(WorkerEvent::StartWrite(write_verify_workflow))
+                    .unwrap()
+            }
         });
     }
 }
@@ -364,16 +344,12 @@ impl eframe::App for App {
         });
 
         CentralPanel::default().show_inside(ui, |ui| {
-            // if let Some(ongoing_write) = &*self.ongoing_write.lock().unwrap() {
-            //     ui.label("writing!!");
-            //     ui.label(format!("Write progress: {}%", ongoing_write.write_progress));
-            //     ui.label(format!(
-            //         "Verify progress: {}%",
-            //         ongoing_write.verify_progress
-            //     ));
-            //
-            //     return;
-            // }
+            if let Some(write_verify_state) = &*self.write_verify_state.lock().unwrap() {
+                ui.label(format!(
+                    "Current state: {:?}",
+                    write_verify_state.borrow().write_hist()
+                ));
+            }
 
             ui.label(RichText::new(env!("CARGO_PKG_NAME")).heading().size(26.));
             ui.label(env!("CARGO_PKG_DESCRIPTION"));

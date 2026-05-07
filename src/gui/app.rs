@@ -21,7 +21,7 @@ use crate::{
     ui::FacadeExt,
 };
 
-pub struct App<F: CaligulaFacade> {
+pub struct App {
     pub options: Options,
     pub main_to_worker_tx: Sender<WorkerEvent>,
     pub write_verify_state: Arc<Mutex<Option<Watch<WVState>>>>,
@@ -58,9 +58,9 @@ enum WorkerEvent {
     StartWrite(WriteVerifyWorkflow),
 }
 
-impl<F: CaligulaFacade> App<F> {
+impl App {
     fn spawn_worker_thread(
-        orc: Arc<F>,
+        orc: Arc<impl CaligulaFacade>,
         runtime: impl RemoteSpawn + Send + 'static,
         ui_ctx: egui::Context,
         main_to_worker_rx: Receiver<WorkerEvent>,
@@ -106,7 +106,7 @@ impl<F: CaligulaFacade> App<F> {
     pub fn new(
         cc: &eframe::CreationContext,
         runtime: impl RemoteSpawn + Send + 'static,
-        orc: Arc<F>,
+        orc: Arc<impl CaligulaFacade>,
         log_paths: Arc<LogPaths>,
     ) -> Self {
         #[cfg(not(debug_assertions))]
@@ -347,7 +347,7 @@ impl<F: CaligulaFacade> App<F> {
     }
 }
 
-impl<F: CaligulaFacade> eframe::App for App<F> {
+impl eframe::App for App {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {}
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

@@ -1,5 +1,6 @@
 use egui::{
-    CentralPanel, Checkbox, Color32, ComboBox, MenuBar, Panel, RichText, UiBuilder, ViewportCommand,
+    CentralPanel, Checkbox, Color32, ComboBox, MenuBar, Panel, ProgressBar, RichText, UiBuilder,
+    ViewportCommand,
 };
 use std::{
     path::PathBuf,
@@ -70,7 +71,7 @@ impl App {
         const REFRESH_PERIOD: Duration = Duration::from_millis(250);
 
         std::thread::spawn(move || {
-            loop {
+            'outer: loop {
                 let Ok(WorkerEvent::StartWrite(write_verify_workflow)) =
                     main_to_worker_rx.try_recv()
                 else {
@@ -90,13 +91,24 @@ impl App {
                     Ok(state) => state,
                 };
 
-                // WARNING: can i really clone state?
                 write_verify_state.lock().unwrap().replace(state.clone());
 
                 while !matches!(&*state.borrow(), WVState::Finished { .. }) {
                     ui_ctx.request_repaint();
                     std::thread::sleep(REFRESH_PERIOD);
+
+                    if matches!(main_to_worker_rx.try_recv(), Ok(WorkerEvent::Abort)) {
+                        write_verify_state.lock().unwrap().take();
+                        ui_ctx.request_repaint();
+                        continue 'outer;
+                    }
                 }
+
+                while !matches!(main_to_worker_rx.try_recv(), Ok(WorkerEvent::Abort)) {
+                    std::thread::sleep(REFRESH_PERIOD);
+                }
+
+                write_verify_state.lock().unwrap().take();
                 ui_ctx.request_repaint();
             }
         });
@@ -345,10 +357,45 @@ impl eframe::App for App {
 
         CentralPanel::default().show_inside(ui, |ui| {
             if let Some(write_verify_state) = &*self.write_verify_state.lock().unwrap() {
-                ui.label(format!(
-                    "Current state: {:?}",
-                    write_verify_state.borrow().write_hist()
-                ));
+                match &*write_verify_state.borrow() {
+                    WVState::Writing(writing) => {
+                        ui.label("Burning");
+                        ui.add(
+                            ProgressBar::new(writing.approximate_ratio() as f32).show_percentage(),
+                        );
+                        if ui.button("Abort").clicked() {
+                            self.main_to_worker_tx.send(WorkerEvent::Abort).unwrap();
+                        }
+                    }
+                    WVState::Verifying {
+                        total_write_bytes,
+                        verify_hist,
+                        ..
+                    } => {
+                        ui.label("Verifying");
+                        let ratio =
+                            verify_hist.bytes_encountered() as f32 / *total_write_bytes as f32;
+                        ui.add(ProgressBar::new(ratio).show_percentage());
+                        if ui.button("Abort").clicked() {
+                            self.main_to_worker_tx.send(WorkerEvent::Abort).unwrap();
+                        }
+                    }
+                    WVState::Finished {
+                        finish_time,
+                        result,
+                        total_write_bytes,
+                        ..
+                    } => {
+                        ui.label(format!(
+                            "Finished in {finish_time:?} with result {result:?}"
+                        ));
+                        ui.label(format!("Total bytes written: {total_write_bytes}"));
+                        if ui.button("Finish").clicked() {
+                            self.main_to_worker_tx.send(WorkerEvent::Abort).unwrap();
+                        }
+                    }
+                }
+                return;
             }
 
             ui.label(RichText::new(env!("CARGO_PKG_NAME")).heading().size(26.));

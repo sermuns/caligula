@@ -100,6 +100,12 @@ impl App {
                     if matches!(main_to_worker_rx.try_recv(), Ok(WorkerEvent::Abort)) {
                         write_verify_state.lock().unwrap().take();
                         ui_ctx.request_repaint();
+
+                        // `state` goes out of scope here.
+                        // TODO:
+                        // find out if dropping `state` cancels the
+                        // WriteVerifyWorkflow.
+                        // or do we just lose control of it?
                         continue 'outer;
                     }
                 }

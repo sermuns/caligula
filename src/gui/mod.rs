@@ -3,10 +3,10 @@ mod app;
 use app::App;
 use std::sync::Arc;
 
-use crate::{logging::LogPaths, facade::CaligulaFacade, runtime::RemoteSpawn};
+use crate::{facade::CaligulaFacade, logging::LogPaths, runtime::RemoteSpawn};
 
 pub fn main(
-    runtime: impl RemoteSpawn,
+    runtime: impl RemoteSpawn + Send + 'static,
     orc: Arc<impl CaligulaFacade>,
     log_paths: Arc<LogPaths>,
 ) -> eframe::Result<()> {

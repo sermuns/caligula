@@ -3,30 +3,28 @@ use egui::{
 };
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, Sender},
+    },
+    time::Duration,
 };
 use tracing::error;
 
 use crate::{
     compression::CompressionFormat,
     device::{self, Removable, WriteTarget, enumerate_devices},
-    facade::{CaligulaFacade, WVState, WriteVerifyWorkflow},
+    facade::{CaligulaFacade, WVState, WriteVerifyWorkflow, watch::Watch},
     hash::{HashAlg, parse_hash_input},
     logging::LogPaths,
     runtime::RemoteSpawn,
+    ui::FacadeExt,
 };
 
-pub struct App<F: CaligulaFacade, R: RemoteSpawn> {
-    pub log_paths: Arc<LogPaths>,
+pub struct App<F: CaligulaFacade> {
     pub options: Options,
-    pub ongoing_write: Option<OngoingWrite>,
-    pub orc: Arc<F>,
-    pub runtime: R,
-}
-
-pub struct OngoingWrite {
-    pub write_progress: u64,
-    pub verify_progress: u64,
+    pub main_to_worker_tx: Sender<WorkerEvent>,
+    pub write_verify_state: Arc<Mutex<Option<Watch<WVState>>>>,
 }
 
 #[derive(Default)]
@@ -42,8 +40,6 @@ pub struct Options {
     pub show_all_disks: bool,
     #[cfg_attr(debug_assertions, serde(skip))]
     pub has_confirmed_writing: bool,
-    #[cfg_attr(debug_assertions, serde(skip))]
-    pub write_verify_params: Option<WriteVerifyWorkflow>,
 }
 
 #[derive(Default)]
@@ -58,10 +54,58 @@ pub struct FileHashOptions {
     pub verified: bool,
 }
 
-impl<F: CaligulaFacade, R: RemoteSpawn> App<F, R> {
+enum WorkerEvent {
+    StartWrite(WriteVerifyWorkflow),
+}
+
+impl<F: CaligulaFacade> App<F> {
+    fn spawn_worker_thread(
+        orc: Arc<F>,
+        runtime: impl RemoteSpawn + Send + 'static,
+        ui_ctx: egui::Context,
+        main_to_worker_rx: Receiver<WorkerEvent>,
+        write_verify_state: Arc<Mutex<Option<Watch<WVState>>>>,
+    ) {
+        const REFRESH_PERIOD: Duration = Duration::from_millis(250);
+
+        std::thread::spawn(move || {
+            loop {
+                let Ok(WorkerEvent::StartWrite(write_verify_workflow)) =
+                    main_to_worker_rx.try_recv()
+                else {
+                    std::thread::sleep(REFRESH_PERIOD);
+                    continue;
+                };
+
+                let state = match orc
+                    .clone()
+                    .start_write_verify_blocking(&runtime, write_verify_workflow)
+                {
+                    Err(e) => {
+                        error!(?e, "failed to start write/verify process");
+                        continue;
+                    }
+                    Ok(state) => state,
+                };
+
+                // WARNING: can i really
+                // clone state?
+                *write_verify_state.lock().unwrap() = Some(state.clone());
+
+                loop {
+                    if matches!(&*state.borrow(), WVState::Finished { .. }) {
+                        break; // installation done!
+                    }
+                    ui_ctx.request_repaint();
+                    std::thread::sleep(REFRESH_PERIOD);
+                }
+            }
+        });
+    }
+
     pub fn new(
         cc: &eframe::CreationContext,
-        runtime: R,
+        runtime: impl RemoteSpawn + Send + 'static,
         orc: Arc<F>,
         log_paths: Arc<LogPaths>,
     ) -> Self {
@@ -74,12 +118,22 @@ impl<F: CaligulaFacade, R: RemoteSpawn> App<F, R> {
             .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY))
             .unwrap_or_default();
 
-        let mut s = Self {
-            log_paths,
-            options,
-            ongoing_write: Arc::new(Mutex::new(None)),
+        let (main_to_worker_tx, main_to_worker_rx) = mpsc::channel();
+
+        let write_verify_state = Arc::new(Mutex::new(None));
+
+        Self::spawn_worker_thread(
             orc,
             runtime,
+            cc.egui_ctx.clone(),
+            main_to_worker_rx,
+            write_verify_state.clone(),
+        );
+
+        let mut s = Self {
+            options,
+            main_to_worker_tx,
+            write_verify_state,
         };
 
         s.refresh_devices();
@@ -261,73 +315,39 @@ impl<F: CaligulaFacade, R: RemoteSpawn> App<F, R> {
                 // don't unwrap.
                 // actually don't even have this shitty refresh button,
                 // should just refresh when any of the underlying values change
-                self.options.write_verify_params = WriteVerifyWorkflow::new(
-                    self.options.picked_image.clone().unwrap(),
-                    self.options.detected_compression_format.unwrap(),
-                    self.options.selected_write_target.clone().unwrap(),
-                )
-                .ok();
+                // self.options.write_verify_params = WriteVerifyWorkflow::new(
+                //     self.options.picked_image.clone().unwrap(),
+                //     self.options.detected_compression_format.unwrap(),
+                //     self.options.selected_write_target.clone().unwrap(),
+                // )
+                // .ok();
             }
 
-            if let Some(write_verify_params) = &self.options.write_verify_params {
-                // TODO: show summary!
-                // ui.label(write_verify_params.to_string());
-
-                ui.label(RichText::new("Ready to write!").color(Color32::GREEN));
-
-                if !self.options.has_confirmed_writing {
-                    if ui.button("Perform write").clicked() {
-                        self.options.has_confirmed_writing = true;
-                    }
-                    return;
-                }
-
-                ui.label(
-                    RichText::new("THIS ACTION WILL DESTROY ALL DATA ON THIS DEVICE!!!")
-                        .color(Color32::YELLOW),
-                );
-
-                if ui.button("I know, do it!").clicked() {
-                    let child_state = match self
-                        .orc
-                        .start_write_verify_blocking(self.runtime, *write_verify_params)
-                    {
-                        Err(e) => {
-                            error!(?e, "failed to start write/verify process");
-                            return;
-                        }
-                        Ok(p) => p.state,
-                    };
-
-                    self.ongoing_write = Some(OngoingWrite {
-                        write_progress: 0,
-                        verify_progress: 0,
-                    });
-
-                    loop {
-                        // FIXME: fugly-ass unwrapping
-                        match *child_state.borrow() {
-                            WVState::Writing(b) => {
-                                self.ongoing_write.unwrap().write_progress =
-                                    (b.approximate_ratio() * 1000.0) as u64
-                            }
-                            WVState::Verifying {
-                                total_write_bytes, ..
-                            } => {
-                                self.ongoing_write.unwrap().verify_progress =
-                                    total_write_bytes * 1000 / input_file_bytes
-                            }
-                            WVState::Finished { .. } => break,
-                        }
-                        ui.ctx().request_repaint();
-                    }
-                }
-            }
+            // if let Some(write_verify_params) = &self.options.write_verify_params {
+            //     // TODO: show summary!
+            //     // ui.label(write_verify_params.to_string());
+            //
+            //     ui.label(RichText::new("Ready to write!").color(Color32::GREEN));
+            //
+            //     if !self.options.has_confirmed_writing {
+            //         if ui.button("Perform write").clicked() {
+            //             self.options.has_confirmed_writing = true;
+            //         }
+            //         return;
+            //     }
+            //
+            //     ui.label(
+            //         RichText::new("THIS ACTION WILL DESTROY ALL DATA ON THIS DEVICE!!!")
+            //             .color(Color32::YELLOW),
+            //     );
+            //
+            //     if ui.button("I know, do it!").clicked() {}
+            // }
         });
     }
 }
 
-impl<O: CaligulaFacade, R: RemoteSpawn> eframe::App for App<O, R> {
+impl<F: CaligulaFacade> eframe::App for App<F> {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {}
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -344,16 +364,16 @@ impl<O: CaligulaFacade, R: RemoteSpawn> eframe::App for App<O, R> {
         });
 
         CentralPanel::default().show_inside(ui, |ui| {
-            if let Some(ongoing_write) = &*self.ongoing_write.lock().unwrap() {
-                ui.label("writing!!");
-                ui.label(format!("Write progress: {}%", ongoing_write.write_progress));
-                ui.label(format!(
-                    "Verify progress: {}%",
-                    ongoing_write.verify_progress
-                ));
-
-                return;
-            }
+            // if let Some(ongoing_write) = &*self.ongoing_write.lock().unwrap() {
+            //     ui.label("writing!!");
+            //     ui.label(format!("Write progress: {}%", ongoing_write.write_progress));
+            //     ui.label(format!(
+            //         "Verify progress: {}%",
+            //         ongoing_write.verify_progress
+            //     ));
+            //
+            //     return;
+            // }
 
             ui.label(RichText::new(env!("CARGO_PKG_NAME")).heading().size(26.));
             ui.label(env!("CARGO_PKG_DESCRIPTION"));
